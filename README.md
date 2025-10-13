@@ -1,10 +1,27 @@
+<div align="center">
+
 # dual
 
 **General-purpose port management for multi-context development**
 
+[![Go Version](https://img.shields.io/github/go-mod/go-version/lightfastai/dual)](https://go.dev/)
+[![Release](https://img.shields.io/github/v/release/lightfastai/dual)](https://github.com/lightfastai/dual/releases)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/lightfastai/dual/release.yml)](https://github.com/lightfastai/dual/actions)
+[![Go Report Card](https://goreportcard.com/badge/github.com/lightfastai/dual)](https://goreportcard.com/report/github.com/lightfastai/dual)
+
+[![GitHub stars](https://img.shields.io/github/stars/lightfastai/dual)](https://github.com/lightfastai/dual/stargazers)
+[![GitHub issues](https://img.shields.io/github/issues/lightfastai/dual)](https://github.com/lightfastai/dual/issues)
+
 `dual` is a CLI tool that automatically manages port assignments across different development contexts (branches, worktrees, or clones), eliminating port conflicts and configuration headaches when working on multiple features simultaneously.
 
-## The Problem
+[Features](#key-features) • [Installation](#installation) • [Quick Start](#quick-start) • [Documentation](#usage) • [Examples](#real-world-workflows)
+
+</div>
+
+---
+
+## 🚨 The Problem
 
 When working on multiple features using git worktrees or multiple clones:
 
@@ -25,7 +42,7 @@ pnpm dev  # → Error: Port 3000 already in use!
 - Remembering which ports are used by which context
 - Updating ports across multiple services in a monorepo
 
-## The Solution
+## ✨ The Solution
 
 `dual` acts as a transparent command wrapper that auto-detects your context and service, calculates the appropriate port, and injects it seamlessly:
 
@@ -43,7 +60,7 @@ dual pnpm dev
 # No conflicts! Both run simultaneously on different ports.
 ```
 
-## Key Features
+## 🎯 Key Features
 
 - **Zero configuration**: After initial setup, just prefix commands with `dual`
 - **Auto-detection**: Detects context (git branch) and service (from directory) automatically
@@ -53,7 +70,7 @@ dual pnpm dev
 - **Fast**: Native Go binary, instant startup
 - **Portable**: Config can be committed, registry is local
 
-## Installation
+## 📦 Installation
 
 ### Homebrew (macOS/Linux)
 
@@ -79,7 +96,7 @@ go build -o dual ./cmd/dual
 mv dual /usr/local/bin/
 ```
 
-## Quick Start
+## 🚀 Quick Start
 
 ### 1. Initialize your project
 
@@ -131,7 +148,7 @@ dual bun run dev
 dual cargo run
 ```
 
-## Usage
+## 📖 Usage
 
 ### Command Wrapper (Primary Interface)
 
@@ -199,7 +216,7 @@ dual open web
 dual sync
 ```
 
-## Configuration
+## ⚙️ Configuration
 
 ### Project Config (`dual.config.yml`)
 
@@ -247,7 +264,7 @@ Stores context-to-port mappings across all projects:
 
 **Local only** (not committed).
 
-## How It Works
+## 🔧 How It Works
 
 ### Port Calculation
 
@@ -303,7 +320,7 @@ Matches current working directory against service paths:
 # Match: "web" ✓
 ```
 
-## Real-World Workflows
+## 💼 Real-World Workflows
 
 ### Monorepo with Worktrees
 
@@ -375,7 +392,7 @@ Or install dual in CI for consistency:
   run: dual pnpm test
 ```
 
-## Comparison
+## 📊 Comparison
 
 ### vs Manual Port Management
 
@@ -409,7 +426,7 @@ vercel pull  # No conflicts
 | Zero config after setup | ✅ | ❌ | ❌ |
 | Universal (any command) | ✅ | ✅ | ✅ |
 
-## Contributing
+## 🤝 Contributing
 
 We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
@@ -429,11 +446,11 @@ go build -o dual ./cmd/dual
 go test ./...
 ```
 
-## License
+## 📄 License
 
 Apache License 2.0 - see [LICENSE](LICENSE) for details.
 
-## Roadmap
+## 🗺️ Roadmap
 
 - [x] Core port management
 - [x] Command wrapper with auto-detection
@@ -443,11 +460,11 @@ Apache License 2.0 - see [LICENSE](LICENSE) for details.
 - [ ] Windows support
 - [ ] Integration with tmux/terminal multiplexers
 
-## Credits
+## 🙏 Credits
 
 Built by [Lightfast](https://github.com/lightfastai) to solve our own multi-context development workflow. Open-sourced to help other developers facing the same challenges.
 
-## Support
+## 💬 Support
 
 - 🐛 [Report a bug](https://github.com/lightfastai/dual/issues/new?template=bug_report.md)
 - 💡 [Request a feature](https://github.com/lightfastai/dual/issues/new?template=feature_request.md)
