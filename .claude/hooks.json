@@ -1,0 +1,13 @@
+{
+  "hooks": [
+    {
+      "matcher": "Edit|Write",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "if [[ \"$CLAUDE_FILE_PATHS\" =~ \\.go$ ]]; then export PATH=\"$HOME/go/bin:$PATH\" && goimports -w \"$CLAUDE_FILE_PATHS\" && gofumpt -w \"$CLAUDE_FILE_PATHS\" && golangci-lint run --fix \"$CLAUDE_FILE_PATHS\"; fi"
+        }
+      ]
+    }
+  ]
+}
