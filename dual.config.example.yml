@@ -1,0 +1,19 @@
+# Example dual configuration file
+# Place this file at your project root as "dual.config.yml"
+
+version: 1
+
+services:
+  # Web frontend service
+  web:
+    path: apps/web
+    envFile: apps/web/.env.local
+
+  # API backend service
+  api:
+    path: apps/api
+    envFile: apps/api/.env.local
+
+  # Worker service (envFile is optional)
+  worker:
+    path: apps/worker
