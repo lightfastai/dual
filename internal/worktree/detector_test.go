@@ -15,7 +15,7 @@ type mockFileInfo struct {
 
 func (m mockFileInfo) Name() string       { return m.name }
 func (m mockFileInfo) Size() int64        { return 0 }
-func (m mockFileInfo) Mode() os.FileMode  { return 0644 }
+func (m mockFileInfo) Mode() os.FileMode  { return 0o644 }
 func (m mockFileInfo) ModTime() time.Time { return time.Time{} }
 func (m mockFileInfo) IsDir() bool        { return m.isDir }
 func (m mockFileInfo) Sys() interface{}   { return nil }
@@ -117,8 +117,8 @@ func TestGetParentRepo(t *testing.T) {
 				if path == "/home/user/project-wt/.git" {
 					return mockFileInfo{name: ".git", isDir: false}, nil
 				}
-				if path == "/home/user/project/.git" {
-					return mockFileInfo{name: ".git", isDir: true}, nil
+				if path == "/home/user/project" {
+					return mockFileInfo{name: "project", isDir: true}, nil
 				}
 				return nil, os.ErrNotExist
 			},
@@ -131,7 +131,7 @@ func TestGetParentRepo(t *testing.T) {
 			evalFunc: func(path string) (string, error) {
 				return path, nil
 			},
-			expected:    "/home/user/project/.git",
+			expected:    "/home/user/project",
 			expectError: false,
 		},
 		{
@@ -187,7 +187,7 @@ func TestGetParentRepo(t *testing.T) {
 					return mockFileInfo{name: ".git", isDir: false}, nil
 				}
 				// Parent repo doesn't exist
-				if path == "/home/user/project/.git" {
+				if path == "/home/user/project" {
 					return nil, os.ErrNotExist
 				}
 				return nil, os.ErrNotExist
@@ -251,8 +251,8 @@ func TestGetProjectRoot(t *testing.T) {
 				switch path {
 				case "/home/user/project-wt/.git":
 					return mockFileInfo{name: ".git", isDir: false}, nil
-				case "/home/user/project/.git":
-					return mockFileInfo{name: ".git", isDir: true}, nil
+				case "/home/user/project":
+					return mockFileInfo{name: "project", isDir: true}, nil
 				}
 				return nil, os.ErrNotExist
 			},
@@ -265,7 +265,7 @@ func TestGetProjectRoot(t *testing.T) {
 			evalFunc: func(path string) (string, error) {
 				return path, nil
 			},
-			expected:    "/home/user/project/.git",
+			expected:    "/home/user/project",
 			expectError: false,
 		},
 		{

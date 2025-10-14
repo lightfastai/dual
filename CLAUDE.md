@@ -131,6 +131,24 @@ Detectors accept function parameters for git commands, getwd, evalSymlinks to en
 ### Port Calculation Gotcha
 Services are sorted **alphabetically** for port assignment, not by order in config file. This ensures deterministic ports even if config order changes.
 
+## GitHub Workflow
+
+### Issue Labels
+All issues must be labeled with appropriate combinations from these categories:
+
+**Type** (required): `enhancement`, `bug`, `documentation`, `testing`, `refactor`
+**Area** (required): `core`, `command`, `infrastructure`, `environment`, `config`
+**Priority** (recommended): `critical`, `high`, `medium`, `low`
+**Status** (optional): `blocked`, `help-wanted`, `good-first-issue`, `epic`
+
+Example issue labeling:
+- New command → `enhancement`, `command`, `medium`
+- Registry corruption bug → `bug`, `core`, `critical`
+- Release automation → `enhancement`, `infrastructure`, `high`
+- Tracking issue → `epic` + relevant area labels
+
+Use `gh issue create` or `gh issue edit` to manage labels via CLI.
+
 ## File Locations
 
 ### User Data

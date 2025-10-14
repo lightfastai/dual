@@ -77,13 +77,13 @@ func (d *Detector) GetParentRepo(worktreeDir string) (string, error) {
 	// Extract the gitdir path
 	gitdir := strings.TrimPrefix(line, "gitdir: ")
 
-	// The parent repo is two directories up from the gitdir
+	// The parent repo is three directories up from the gitdir
 	// e.g., /home/user/project/.git/worktrees/name → /home/user/project
 	// gitdir: /home/user/project/.git/worktrees/name
 	// parent of gitdir: /home/user/project/.git/worktrees
 	// parent of parent: /home/user/project/.git
 	// parent of that: /home/user/project
-	parentRepo := filepath.Dir(filepath.Dir(gitdir))
+	parentRepo := filepath.Dir(filepath.Dir(filepath.Dir(gitdir)))
 
 	// Validate the parent repo exists
 	if _, err := d.stat(parentRepo); err != nil {

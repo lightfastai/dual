@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/lightfastai/dual/internal/worktree"
 	"gopkg.in/yaml.v3"
 )
 
@@ -36,7 +37,10 @@ type Service struct {
 
 // LoadConfig searches for dual.config.yml starting from the current directory
 // and walking up the directory tree until it finds the file or reaches the root.
-// It returns the parsed config and the absolute path of the project root (where the config was found).
+// It returns the parsed config and the absolute path of the project root.
+// For worktrees, the project root is the directory where the config was found
+// (which will be the worktree directory for worktrees sharing the config).
+// Use GetProjectIdentifier() to get the normalized identifier for the registry.
 func LoadConfig() (*Config, string, error) {
 	// Start from current directory
 	currentDir, err := os.Getwd()
@@ -46,23 +50,14 @@ func LoadConfig() (*Config, string, error) {
 
 	// Walk up the directory tree
 	searchDir := currentDir
+	var configDir string
 	for {
 		configPath := filepath.Join(searchDir, ConfigFileName)
 
 		// Check if config file exists
 		if _, err := os.Stat(configPath); err == nil {
-			// Found the config file, parse it
-			config, err := parseConfig(configPath)
-			if err != nil {
-				return nil, "", fmt.Errorf("failed to parse %s: %w", configPath, err)
-			}
-
-			// Validate the config
-			if err := validateConfig(config, searchDir); err != nil {
-				return nil, "", fmt.Errorf("invalid config in %s: %w", configPath, err)
-			}
-
-			return config, searchDir, nil
+			configDir = searchDir
+			break
 		}
 
 		// Move up one directory
@@ -75,6 +70,26 @@ func LoadConfig() (*Config, string, error) {
 
 		searchDir = parentDir
 	}
+
+	// Found the config file at configDir
+	configPath := filepath.Join(configDir, ConfigFileName)
+
+	// Parse the config
+	config, err := parseConfig(configPath)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to parse %s: %w", configPath, err)
+	}
+
+	// The project root is the directory where the config was found
+	// This allows service paths to be resolved correctly in both main repo and worktrees
+	projectRoot := configDir
+
+	// Validate the config against the project root
+	if err := validateConfig(config, projectRoot); err != nil {
+		return nil, "", fmt.Errorf("invalid config in %s: %w", configPath, err)
+	}
+
+	return config, projectRoot, nil
 }
 
 // parseConfig reads and parses a YAML config file
@@ -205,4 +220,27 @@ func LoadConfigFrom(path string) (*Config, error) {
 	}
 
 	return config, nil
+}
+
+// GetProjectIdentifier returns the normalized project identifier for the registry.
+// For worktrees, this returns the parent repository path so all worktrees share
+// the same project entry in the registry. For normal repos, returns the projectRoot.
+func GetProjectIdentifier(projectRoot string) (string, error) {
+	wtDetector := worktree.NewDetector()
+
+	// Try to detect if we're in a worktree
+	gitRoot, err := wtDetector.FindGitRoot(projectRoot)
+	if err != nil {
+		// Not in a git repo, use projectRoot as-is
+		return projectRoot, nil
+	}
+
+	// Get the normalized project root (parent repo for worktrees)
+	normalizedRoot, err := wtDetector.GetProjectRoot(gitRoot)
+	if err != nil {
+		// If detection fails, use projectRoot as-is
+		return projectRoot, nil
+	}
+
+	return normalizedRoot, nil
 }

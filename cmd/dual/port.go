@@ -67,6 +67,12 @@ func runPort(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Get the normalized project identifier for registry operations
+	projectIdentifier, err := config.GetProjectIdentifier(projectRoot)
+	if err != nil {
+		return fmt.Errorf("failed to get project identifier: %w", err)
+	}
+
 	// Load registry
 	reg, err := registry.LoadRegistry()
 	if err != nil {
@@ -74,7 +80,7 @@ func runPort(cmd *cobra.Command, args []string) error {
 	}
 
 	// Calculate port
-	port, err := service.CalculatePort(cfg, reg, projectRoot, contextName, serviceName)
+	port, err := service.CalculatePort(cfg, reg, projectIdentifier, contextName, serviceName)
 	if err != nil {
 		if errors.Is(err, service.ErrContextNotFound) {
 			return fmt.Errorf("context %q not found in registry\nHint: Run 'dual context create' to create this context", contextName)

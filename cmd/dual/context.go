@@ -60,6 +60,12 @@ func runContextInfo(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w\nHint: Run 'dual init' to create a configuration file", err)
 	}
 
+	// Get the normalized project identifier for registry lookups
+	projectIdentifier, err := config.GetProjectIdentifier(projectRoot)
+	if err != nil {
+		return fmt.Errorf("failed to get project identifier: %w", err)
+	}
+
 	// Detect context
 	contextName, err := context.DetectContext()
 	if err != nil {
@@ -73,7 +79,7 @@ func runContextInfo(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get context info
-	ctx, err := reg.GetContext(projectRoot, contextName)
+	ctx, err := reg.GetContext(projectIdentifier, contextName)
 	if err != nil {
 		if errors.Is(err, registry.ErrContextNotFound) || errors.Is(err, registry.ErrProjectNotFound) {
 			return fmt.Errorf("context %q not found in registry\nHint: Run 'dual context create' to create this context", contextName)
@@ -140,6 +146,12 @@ func runContextCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to determine project root: %w\nHint: Make sure you're in a git repository or have a dual.config.yml file", err)
 	}
 
+	// Get the normalized project identifier for registry operations
+	projectIdentifier, err := config.GetProjectIdentifier(projectRoot)
+	if err != nil {
+		return fmt.Errorf("failed to get project identifier: %w", err)
+	}
+
 	// Load registry
 	reg, err := registry.LoadRegistry()
 	if err != nil {
@@ -147,8 +159,8 @@ func runContextCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Check if context already exists
-	if reg.ContextExists(projectRoot, contextName) {
-		existingContext, _ := reg.GetContext(projectRoot, contextName)
+	if reg.ContextExists(projectIdentifier, contextName) {
+		existingContext, _ := reg.GetContext(projectIdentifier, contextName)
 		return fmt.Errorf("context %q already exists for this project with base port %d\nUse a different name or delete the existing context first", contextName, existingContext.BasePort)
 	}
 
@@ -170,7 +182,7 @@ func runContextCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Set context in registry
-	if err := reg.SetContext(projectRoot, contextName, basePort, currentPath); err != nil {
+	if err := reg.SetContext(projectIdentifier, contextName, basePort, currentPath); err != nil {
 		return fmt.Errorf("failed to set context: %w", err)
 	}
 
@@ -180,7 +192,7 @@ func runContextCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("[dual] Created context %q\n", contextName)
-	fmt.Printf("  Project: %s\n", projectRoot)
+	fmt.Printf("  Project: %s\n", projectIdentifier)
 	fmt.Printf("  Base Port: %d\n", basePort)
 	fmt.Println("\nServices will be assigned ports starting from:", basePort+1)
 
