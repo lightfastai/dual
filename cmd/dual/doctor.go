@@ -60,6 +60,7 @@ func init() {
 	rootCmd.AddCommand(doctorCmd)
 }
 
+//nolint:gocyclo // Health check function naturally has high complexity due to 11 sequential checks
 func runDoctor(cmd *cobra.Command, args []string) error {
 	// Initialize logger
 	logger.Init(verboseFlag, debugFlag)
@@ -117,12 +118,6 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		result.AddCheck(health.CheckRegistry(ctx))
 	} else {
 		ctx.Registry = reg
-		// Make sure to close registry when done
-		defer func() {
-			if err := reg.Close(); err != nil {
-				logger.Verbose("Warning: failed to close registry: %v", err)
-			}
-		}()
 		result.AddCheck(health.CheckRegistry(ctx))
 	}
 
@@ -181,6 +176,13 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		logger.Verbose("Checking service detection...")
 	}
 	result.AddCheck(health.CheckServiceDetection(ctx))
+
+	// Close registry before exiting
+	if ctx.Registry != nil {
+		if err := ctx.Registry.Close(); err != nil {
+			logger.Verbose("Warning: failed to close registry: %v", err)
+		}
+	}
 
 	// Determine exit code
 	result.ExitCode = result.DetermineExitCode()

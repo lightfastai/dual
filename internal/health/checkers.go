@@ -35,7 +35,6 @@ func CheckGitRepository() Check {
 	// Try to run git status
 	cmd := exec.Command("git", "rev-parse", "--git-dir")
 	output, err := cmd.CombinedOutput()
-
 	if err != nil {
 		return check.
 			WithStatus(StatusError).
