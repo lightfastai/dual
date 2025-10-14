@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"github.com/lightfastai/dual/internal/config"
+	"github.com/lightfastai/dual/internal/logger"
 	"github.com/lightfastai/dual/internal/registry"
 )
 
@@ -36,6 +37,8 @@ func (c *Calculator) CalculatePort(cfg *config.Config, reg *registry.Registry, p
 		return 0, fmt.Errorf("failed to get context: %w", err)
 	}
 
+	logger.Debug("Base port: %d", ctx.BasePort)
+
 	// Check if the service exists in the config
 	if _, exists := cfg.Services[serviceName]; !exists {
 		return 0, ErrServiceNotFound
@@ -43,9 +46,12 @@ func (c *Calculator) CalculatePort(cfg *config.Config, reg *registry.Registry, p
 
 	// Get the service index (services are ordered alphabetically for determinism)
 	serviceIndex := c.getServiceIndex(cfg, serviceName)
+	logger.Debug("Service index: %d", serviceIndex)
 
 	// Calculate port: basePort + serviceIndex + 1
 	port := ctx.BasePort + serviceIndex + 1
+	logger.Debug("Formula: %d + %d + 1 = %d", ctx.BasePort, serviceIndex, port)
+	logger.Success("Port: %d", port)
 
 	return port, nil
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/lightfastai/dual/internal/config"
 	"github.com/lightfastai/dual/internal/context"
 	"github.com/lightfastai/dual/internal/env"
+	"github.com/lightfastai/dual/internal/logger"
 	"github.com/lightfastai/dual/internal/registry"
 	"github.com/lightfastai/dual/internal/service"
 	"github.com/spf13/cobra"
@@ -24,6 +25,9 @@ var (
 	date    = "unknown"
 	// Global flag for service override
 	serviceOverride string
+	// Global flags for logging
+	verboseFlag bool
+	debugFlag   bool
 )
 
 var rootCmd = &cobra.Command{
@@ -71,19 +75,36 @@ Built: {{.Annotations.date}}
 	// Add global --service flag for command wrapper
 	rootCmd.PersistentFlags().StringVar(&serviceOverride, "service", "", "override service detection")
 
+	// Add global logging flags
+	rootCmd.PersistentFlags().BoolVar(&verboseFlag, "verbose", false, "verbose output")
+	rootCmd.PersistentFlags().BoolVar(&debugFlag, "debug", false, "debug output (includes verbose)")
+
 	// Allow unknown flags to be passed through to wrapped commands
 	rootCmd.FParseErrWhitelist.UnknownFlags = true
 }
 
 // runCommandWrapper executes an arbitrary command with PORT environment variable injected
 func runCommandWrapper(args []string) error {
+	// Initialize logger
+	logger.Init(verboseFlag, debugFlag)
+
 	// Load config
+	logger.Verbose("Loading configuration...")
 	cfg, projectRoot, err := config.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w\nHint: Run 'dual init' to create a configuration file", err)
 	}
+	logger.Debug("Config: %s", projectRoot)
+
+	// Get service names for debug output
+	serviceNames := make([]string, 0, len(cfg.Services))
+	for name := range cfg.Services {
+		serviceNames = append(serviceNames, name)
+	}
+	logger.Debug("Services: %d (%v)", len(cfg.Services), serviceNames)
 
 	// Detect context
+	logger.Verbose("Detecting context...")
 	contextName, err := context.DetectContext()
 	if err != nil {
 		return fmt.Errorf("failed to detect context: %w", err)
@@ -93,6 +114,7 @@ func runCommandWrapper(args []string) error {
 	var serviceName string
 	if serviceOverride != "" {
 		// Use --service flag override
+		logger.Verbose("Using service override: %s", serviceOverride)
 		serviceName = serviceOverride
 		// Validate service exists in config
 		if _, exists := cfg.Services[serviceName]; !exists {
@@ -100,6 +122,7 @@ func runCommandWrapper(args []string) error {
 		}
 	} else {
 		// Auto-detect service
+		logger.Verbose("Detecting service...")
 		serviceName, err = service.DetectService(cfg, projectRoot)
 		if err != nil {
 			if errors.Is(err, service.ErrServiceNotDetected) {
@@ -116,6 +139,7 @@ func runCommandWrapper(args []string) error {
 	}
 
 	// Load registry
+	logger.Debug("Loading registry...")
 	reg, err := registry.LoadRegistry()
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
@@ -123,6 +147,7 @@ func runCommandWrapper(args []string) error {
 	defer reg.Close()
 
 	// Calculate port
+	logger.Verbose("Calculating port...")
 	port, err := service.CalculatePort(cfg, reg, projectIdentifier, contextName, serviceName)
 	if err != nil {
 		if errors.Is(err, service.ErrContextNotFound) {
@@ -166,6 +191,9 @@ func runCommandWrapper(args []string) error {
 	cmdName := args[0]
 	cmdArgs := args[1:]
 
+	logger.Verbose("Executing command: %s %v", cmdName, cmdArgs)
+	logger.Debug("Environment: %d variables total", stats.TotalVars)
+
 	// #nosec G204 - Command name and args are controlled by dual's logic
 	cmd := exec.Command(cmdName, cmdArgs...)
 
@@ -199,11 +227,11 @@ func main() {
 	shouldPassthrough := false
 	var firstNonFlagArg string
 
-	// Find first non-flag argument and check for --service
+	// Find first non-flag argument and check for dual-specific flags
 	for i := 1; i < len(os.Args); i++ {
 		arg := os.Args[i]
 
-		// Parse --service flag
+		// Parse dual-specific flags
 		switch {
 		case arg == "--service" && i+1 < len(os.Args):
 			serviceOverride = os.Args[i+1]
@@ -212,6 +240,10 @@ func main() {
 		case strings.HasPrefix(arg, "--service="):
 			serviceOverride = strings.TrimPrefix(arg, "--service=")
 			shouldPassthrough = true
+		case arg == "--verbose":
+			verboseFlag = true
+		case arg == "--debug":
+			debugFlag = true
 		case !strings.HasPrefix(arg, "-") && firstNonFlagArg == "":
 			firstNonFlagArg = arg
 		}
@@ -233,7 +265,7 @@ func main() {
 	}
 
 	if shouldPassthrough && firstNonFlagArg != "" {
-		// Build args for wrapped command (without --service flag)
+		// Build args for wrapped command (filtering out dual-specific flags)
 		var wrappedArgs []string
 		skipNext := false
 
@@ -245,10 +277,13 @@ func main() {
 				continue
 			}
 
+			// Filter out dual-specific flags
 			if arg == "--service" {
 				skipNext = true
 				continue
 			} else if strings.HasPrefix(arg, "--service=") {
+				continue
+			} else if arg == "--verbose" || arg == "--debug" {
 				continue
 			}
 
