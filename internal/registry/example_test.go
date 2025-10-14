@@ -27,6 +27,7 @@ func Example() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer reg.Close()
 
 	// Create a new context
 	projectPath := "/home/user/myproject"
@@ -79,6 +80,7 @@ func ExampleRegistry_FindNextAvailablePort() {
 	defer os.Setenv("HOME", oldHome)
 
 	reg, _ := registry.LoadRegistry()
+	defer reg.Close()
 
 	// First port (empty registry)
 	port1 := reg.FindNextAvailablePort()
@@ -118,6 +120,7 @@ func ExampleRegistry_ListContexts() {
 	defer os.Setenv("HOME", oldHome)
 
 	reg, _ := registry.LoadRegistry()
+	defer reg.Close()
 
 	// Add multiple contexts
 	projectPath := "/home/user/myproject"

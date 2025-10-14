@@ -78,6 +78,7 @@ func runPort(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
 	}
+	defer reg.Close()
 
 	// Calculate port
 	port, err := service.CalculatePort(cfg, reg, projectIdentifier, contextName, serviceName)

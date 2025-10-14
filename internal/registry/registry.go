@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,12 +10,15 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/gofrs/flock"
 )
 
 // Registry represents the global registry structure stored in ~/.dual/registry.json
 type Registry struct {
 	Projects map[string]Project `json:"projects"`
 	mu       sync.RWMutex       `json:"-"`
+	flock    *flock.Flock       `json:"-"` // File lock for atomic operations
 }
 
 // Project represents a single project in the registry
@@ -35,10 +39,14 @@ var (
 	ErrProjectNotFound = errors.New("project not found in registry")
 	// ErrContextNotFound is returned when a context doesn't exist in a project
 	ErrContextNotFound = errors.New("context not found in project")
+	// ErrLockTimeout is returned when file lock acquisition times out
+	ErrLockTimeout = errors.New("timeout waiting for registry lock")
 	// DefaultBasePort is the starting port for new contexts
 	DefaultBasePort = 4100
 	// PortIncrement is the increment between base ports
 	PortIncrement = 100
+	// LockTimeout is the timeout for acquiring the registry lock
+	LockTimeout = 5 * time.Second
 )
 
 // GetRegistryPath returns the path to the registry file
@@ -50,47 +58,87 @@ func GetRegistryPath() (string, error) {
 	return filepath.Join(homeDir, ".dual", "registry.json"), nil
 }
 
-// LoadRegistry reads the registry from ~/.dual/registry.json
+// GetLockPath returns the path to the registry lock file
+func GetLockPath() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get home directory: %w", err)
+	}
+	return filepath.Join(homeDir, ".dual", "registry.json.lock"), nil
+}
+
+// LoadRegistry reads the registry from ~/.dual/registry.json with file locking
 // If the file doesn't exist or is corrupt, it returns a new empty registry
+// The caller MUST call Close() on the returned registry to release the lock
 func LoadRegistry() (*Registry, error) {
 	registryPath, err := GetRegistryPath()
 	if err != nil {
 		return nil, err
 	}
 
-	// If file doesn't exist, return empty registry
+	lockPath, err := GetLockPath()
+	if err != nil {
+		return nil, err
+	}
+
+	// Ensure directory exists before creating lock file
+	registryDir := filepath.Dir(registryPath)
+	if err := os.MkdirAll(registryDir, 0o750); err != nil {
+		return nil, fmt.Errorf("failed to create registry directory: %w", err)
+	}
+
+	// Create file lock
+	fileLock := flock.New(lockPath)
+
+	// Try to acquire lock with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), LockTimeout)
+	defer cancel()
+
+	locked, err := fileLock.TryLockContext(ctx, 100*time.Millisecond)
+	if err != nil {
+		return nil, fmt.Errorf("failed to acquire registry lock: %w", err)
+	}
+	if !locked {
+		return nil, fmt.Errorf("%w: another dual command may be running (waited %v)", ErrLockTimeout, LockTimeout)
+	}
+
+	// Initialize registry
+	registry := &Registry{
+		Projects: make(map[string]Project),
+		mu:       sync.RWMutex{},
+		flock:    fileLock,
+	}
+
+	// If file doesn't exist, return empty registry (but keep the lock)
 	if _, err := os.Stat(registryPath); os.IsNotExist(err) {
-		return &Registry{
-			Projects: make(map[string]Project),
-		}, nil
+		return registry, nil
 	}
 
 	// Read the file
 	// #nosec G304 - registryPath is from trusted GetRegistryPath() function
 	data, err := os.ReadFile(registryPath)
 	if err != nil {
+		// Release lock before returning error
+		_ = fileLock.Unlock()
 		return nil, fmt.Errorf("failed to read registry: %w", err)
 	}
 
 	// Parse JSON
-	var registry Registry
-	if err := json.Unmarshal(data, &registry); err != nil {
-		// If corrupt, return empty registry but log warning
+	var loadedData struct {
+		Projects map[string]Project `json:"projects"`
+	}
+	if err := json.Unmarshal(data, &loadedData); err != nil {
+		// If corrupt, log warning but continue with empty registry (keep the lock)
 		fmt.Fprintf(os.Stderr, "[dual] Warning: corrupt registry file, creating new one: %v\n", err)
-		return &Registry{
-			Projects: make(map[string]Project),
-		}, nil
+		return registry, nil
 	}
 
-	// Initialize the mutex
-	registry.mu = sync.RWMutex{}
-
-	// Ensure Projects map is initialized
-	if registry.Projects == nil {
-		registry.Projects = make(map[string]Project)
+	// Load projects into registry
+	if loadedData.Projects != nil {
+		registry.Projects = loadedData.Projects
 	}
 
-	return &registry, nil
+	return registry, nil
 }
 
 // SaveRegistry writes the registry to ~/.dual/registry.json atomically
@@ -325,4 +373,15 @@ func (r *Registry) ContextExists(projectPath, contextName string) bool {
 
 	_, exists = project.Contexts[contextName]
 	return exists
+}
+
+// Close releases the file lock on the registry
+// This MUST be called after LoadRegistry() to prevent lock leaks
+func (r *Registry) Close() error {
+	if r.flock != nil {
+		if err := r.flock.Unlock(); err != nil {
+			return fmt.Errorf("failed to release registry lock: %w", err)
+		}
+	}
+	return nil
 }

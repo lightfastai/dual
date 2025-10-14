@@ -77,6 +77,7 @@ func runContextInfo(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
 	}
+	defer reg.Close()
 
 	// Get context info
 	ctx, err := reg.GetContext(projectIdentifier, contextName)
@@ -157,6 +158,7 @@ func runContextCreate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
 	}
+	defer reg.Close()
 
 	// Check if context already exists
 	if reg.ContextExists(projectIdentifier, contextName) {

@@ -57,6 +57,7 @@ func runSync(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
 	}
+	defer reg.Close()
 
 	// Calculate ports for all services
 	ports, err := service.CalculateAllPorts(cfg, reg, projectRoot, contextName)
