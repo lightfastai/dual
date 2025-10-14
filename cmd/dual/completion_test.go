@@ -50,8 +50,8 @@ func TestCompletionCommand(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create a fresh command for this test
 			cmd := &cobra.Command{
-				Use:   "completion",
-				Args:  cobra.ExactArgs(1),
+				Use:       "completion",
+				Args:      cobra.ExactArgs(1),
 				ValidArgs: []string{"bash", "zsh", "fish"},
 				RunE: func(cmd *cobra.Command, args []string) error {
 					switch args[0] {
