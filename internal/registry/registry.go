@@ -24,9 +24,10 @@ type Project struct {
 
 // Context represents a development context (branch, worktree, etc.)
 type Context struct {
-	Created  time.Time `json:"created"`
-	Path     string    `json:"path,omitempty"`
-	BasePort int       `json:"basePort"`
+	Created      time.Time         `json:"created"`
+	Path         string            `json:"path,omitempty"`
+	BasePort     int               `json:"basePort"`
+	EnvOverrides map[string]string `json:"envOverrides,omitempty"` // Optional: environment variable overrides
 }
 
 var (
@@ -162,10 +163,69 @@ func (r *Registry) SetContext(projectPath, contextName string, basePort int, con
 	}
 
 	// Set or update context
-	project.Contexts[contextName] = Context{
-		Created:  time.Now(),
-		Path:     contextPath,
-		BasePort: basePort,
+	// Preserve existing env overrides if updating
+	existingContext, exists := project.Contexts[contextName]
+	newContext := Context{
+		Created:      time.Now(),
+		Path:         contextPath,
+		BasePort:     basePort,
+		EnvOverrides: make(map[string]string),
+	}
+
+	// Preserve existing overrides if context already exists
+	if exists && existingContext.EnvOverrides != nil {
+		newContext.EnvOverrides = existingContext.EnvOverrides
+	}
+
+	project.Contexts[contextName] = newContext
+
+	return nil
+}
+
+// SetEnvOverride sets an environment variable override for a context
+func (r *Registry) SetEnvOverride(projectPath, contextName, key, value string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	project, exists := r.Projects[projectPath]
+	if !exists {
+		return ErrProjectNotFound
+	}
+
+	context, exists := project.Contexts[contextName]
+	if !exists {
+		return ErrContextNotFound
+	}
+
+	// Initialize EnvOverrides map if nil
+	if context.EnvOverrides == nil {
+		context.EnvOverrides = make(map[string]string)
+	}
+
+	context.EnvOverrides[key] = value
+	project.Contexts[contextName] = context
+
+	return nil
+}
+
+// UnsetEnvOverride removes an environment variable override for a context
+func (r *Registry) UnsetEnvOverride(projectPath, contextName, key string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	project, exists := r.Projects[projectPath]
+	if !exists {
+		return ErrProjectNotFound
+	}
+
+	context, exists := project.Contexts[contextName]
+	if !exists {
+		return ErrContextNotFound
+	}
+
+	if context.EnvOverrides != nil {
+		delete(context.EnvOverrides, key)
+		project.Contexts[contextName] = context
 	}
 
 	return nil

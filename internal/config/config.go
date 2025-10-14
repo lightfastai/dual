@@ -19,6 +19,13 @@ const (
 type Config struct {
 	Services map[string]Service `yaml:"services"`
 	Version  int                `yaml:"version"`
+	Env      EnvConfig          `yaml:"env,omitempty"`
+}
+
+// EnvConfig contains environment-related configuration
+type EnvConfig struct {
+	// BaseFile is the path to the base environment file (relative to project root)
+	BaseFile string `yaml:"baseFile,omitempty"`
 }
 
 // Service represents a single service configuration

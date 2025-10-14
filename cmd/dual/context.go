@@ -5,13 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"strings"
 
 	"github.com/lightfastai/dual/internal/config"
 	"github.com/lightfastai/dual/internal/context"
 	"github.com/lightfastai/dual/internal/registry"
+	"github.com/lightfastai/dual/internal/worktree"
 	"github.com/spf13/cobra"
 )
 
@@ -189,24 +187,17 @@ func runContextCreate(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// getProjectRoot attempts to find the project root using git or config file
+// getProjectRoot attempts to find the project root using git worktree-aware detection or config file
 func getProjectRoot() (string, error) {
-	// Try git first
-	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
-	output, err := cmd.Output()
+	// Try worktree-aware git detection first
+	wtDetector := worktree.NewDetector()
+	projectRoot, err := wtDetector.GetProjectRootFromCwd()
 	if err == nil {
-		gitRoot := strings.TrimSpace(string(output))
-		if gitRoot != "" {
-			// Convert to absolute path
-			absPath, err := filepath.Abs(gitRoot)
-			if err == nil {
-				return absPath, nil
-			}
-		}
+		return projectRoot, nil
 	}
 
 	// Fall back to config file search
-	_, projectRoot, err := config.LoadConfig()
+	_, projectRoot, err = config.LoadConfig()
 	if err == nil {
 		return projectRoot, nil
 	}

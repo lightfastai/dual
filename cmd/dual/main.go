@@ -9,6 +9,7 @@ import (
 
 	"github.com/lightfastai/dual/internal/config"
 	"github.com/lightfastai/dual/internal/context"
+	"github.com/lightfastai/dual/internal/env"
 	"github.com/lightfastai/dual/internal/registry"
 	"github.com/lightfastai/dual/internal/service"
 	"github.com/spf13/cobra"
@@ -123,8 +124,36 @@ func runCommandWrapper(args []string) error {
 		return fmt.Errorf("failed to calculate port: %w", err)
 	}
 
-	// Print info message
-	fmt.Fprintf(os.Stderr, "[dual] Context: %s | Service: %s | Port: %d\n", contextName, serviceName, port)
+	// Get context from registry to load environment overrides
+	ctx, err := reg.GetContext(projectRoot, contextName)
+	if err != nil {
+		// This shouldn't happen since we just calculated the port successfully
+		// But handle it gracefully
+		ctx = &registry.Context{EnvOverrides: make(map[string]string)}
+	}
+
+	// Load layered environment
+	layeredEnv, err := env.LoadLayeredEnv(projectRoot, cfg, contextName, ctx.EnvOverrides, port)
+	if err != nil {
+		// Non-fatal: warn but continue with just PORT
+		fmt.Fprintf(os.Stderr, "[dual] Warning: failed to load environment: %v\n", err)
+		layeredEnv = &env.LayeredEnv{
+			Base:      make(map[string]string),
+			Overrides: make(map[string]string),
+			Runtime:   map[string]string{"PORT": fmt.Sprintf("%d", port)},
+		}
+	}
+
+	// Get environment stats
+	stats := layeredEnv.Stats()
+
+	// Print info message with environment stats
+	if stats.BaseVars > 0 || stats.OverrideVars > 0 {
+		fmt.Fprintf(os.Stderr, "[dual] Context: %s | Service: %s | Port: %d\n", contextName, serviceName, port)
+		fmt.Fprintf(os.Stderr, "[dual] Env: base=%d overrides=%d total=%d\n", stats.BaseVars, stats.OverrideVars, stats.TotalVars)
+	} else {
+		fmt.Fprintf(os.Stderr, "[dual] Context: %s | Service: %s | Port: %d\n", contextName, serviceName, port)
+	}
 
 	// Prepare command
 	cmdName := args[0]
@@ -133,8 +162,8 @@ func runCommandWrapper(args []string) error {
 	// #nosec G204 - Command name and args are controlled by dual's logic
 	cmd := exec.Command(cmdName, cmdArgs...)
 
-	// Set environment variables - preserve all existing, add/override PORT
-	cmd.Env = append(os.Environ(), fmt.Sprintf("PORT=%d", port))
+	// Set environment variables - start with existing, then add layered env
+	cmd.Env = append(os.Environ(), layeredEnv.ToSlice()...)
 
 	// Stream output in real-time
 	cmd.Stdout = os.Stdout
