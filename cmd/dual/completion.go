@@ -71,7 +71,7 @@ func serviceCompletion(cmd *cobra.Command, args []string, toComplete string) ([]
 	cfg, _, err := config.LoadConfig()
 	if err != nil {
 		// If config can't be loaded, return empty list with no file completion
-		return nil, cobra.ShellCompDirectiveNoFileComp
+		return []string{}, cobra.ShellCompDirectiveNoFileComp
 	}
 
 	// Extract service names
@@ -92,26 +92,26 @@ func contextCompletion(cmd *cobra.Command, args []string, toComplete string) ([]
 	cfg, projectRoot, err := config.LoadConfig()
 	if err != nil {
 		// If config can't be loaded, return empty list
-		return nil, cobra.ShellCompDirectiveNoFileComp
+		return []string{}, cobra.ShellCompDirectiveNoFileComp
 	}
 
 	// Get project identifier
 	projectIdentifier, err := config.GetProjectIdentifier(projectRoot)
 	if err != nil {
-		return nil, cobra.ShellCompDirectiveNoFileComp
+		return []string{}, cobra.ShellCompDirectiveNoFileComp
 	}
 
 	// Load registry
 	reg, err := registry.LoadRegistry()
 	if err != nil {
-		return nil, cobra.ShellCompDirectiveNoFileComp
+		return []string{}, cobra.ShellCompDirectiveNoFileComp
 	}
 	defer reg.Close()
 
 	// Get contexts for this project
 	contexts, err := reg.ListContexts(projectIdentifier)
 	if err != nil {
-		return nil, cobra.ShellCompDirectiveNoFileComp
+		return []string{}, cobra.ShellCompDirectiveNoFileComp
 	}
 
 	// Extract context names
