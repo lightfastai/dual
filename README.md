@@ -216,6 +216,8 @@ dual open web
 dual sync
 ```
 
+For detailed usage information, see [USAGE.md](USAGE.md).
+
 ## ⚙️ Configuration
 
 ### Project Config (`dual.config.yml`)
@@ -320,6 +322,8 @@ Matches current working directory against service paths:
 # Match: "web" ✓
 ```
 
+For detailed architecture information, see [ARCHITECTURE.md](ARCHITECTURE.md).
+
 ## 💼 Real-World Workflows
 
 ### Monorepo with Worktrees
@@ -391,6 +395,8 @@ Or install dual in CI for consistency:
 - name: Run tests
   run: dual pnpm test
 ```
+
+For more detailed examples, see [EXAMPLES.md](EXAMPLES.md).
 
 ## 📊 Comparison
 
