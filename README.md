@@ -76,6 +76,31 @@ dual pnpm dev
 
 ## 📦 Installation
 
+### npm/pnpm/yarn (Recommended for Web Projects)
+
+```bash
+# npm
+npm install --save-dev @lightfastai/dual
+
+# pnpm
+pnpm add -D @lightfastai/dual
+
+# yarn
+yarn add -D @lightfastai/dual
+```
+
+Then use in your package.json scripts:
+
+```json
+{
+  "scripts": {
+    "dev": "dual pnpm dev",
+    "build": "dual pnpm build",
+    "start": "dual npm start"
+  }
+}
+```
+
 ### Homebrew (macOS/Linux)
 
 ```bash
@@ -107,7 +132,9 @@ mv dual /usr/local/bin/
 
 ### Using dual in package.json Scripts
 
-While a dedicated npm package is planned for seamless `package.json` integration, you can use `dual` today with a simple bash wrapper script. This approach works great for teams that want to adopt `dual` immediately or prefer not to add an npm dependency.
+The recommended approach is to install `dual` as an npm dev dependency (see [Installation](#installation)). This provides automatic installation, version locking, and works across all platforms.
+
+Alternatively, you can use a bash wrapper script if you prefer minimal npm dependencies or need custom setup logic.
 
 #### Creating a Bash Wrapper
 
@@ -232,17 +259,17 @@ exec dual pnpm dev "$@"
 - ⚠️ Slightly more verbose than native npm integration
 - ⚠️ Auto-installation adds setup time on first run
 
-**When to use this approach:**
-- You want to use `dual` immediately before the npm package is available
+**When to use the bash wrapper approach:**
 - Your team is comfortable with bash scripts
 - You prefer minimal npm dependencies
 - You need custom setup logic before running commands
+- You want auto-installation logic for new team members
 
-**When to wait for the npm package:**
-- You need Windows cmd.exe support
+**When to use the npm package (recommended):**
 - You want the simplest possible `package.json` integration
 - You prefer zero custom scripts in your repository
-- Your team is less familiar with shell scripting
+- You need Windows cmd.exe support
+- You want automatic version management through package.json
 
 #### Best Practices
 

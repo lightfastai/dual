@@ -1,0 +1,19 @@
+# Node modules
+node_modules/
+
+# Downloaded binaries (these will be downloaded during postinstall)
+bin/dual
+bin/dual.exe
+
+# npm logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Test files
+test/
+
+# Package manager files
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
