@@ -120,22 +120,20 @@ func TestValidateConfig(t *testing.T) {
 			errMsg:  "unsupported config version",
 		},
 		{
-			name: "no services",
+			name: "no services (allowed for init)",
 			config: &Config{
 				Version:  1,
 				Services: map[string]Service{},
 			},
-			wantErr: true,
-			errMsg:  "at least one service must be defined",
+			wantErr: false,
 		},
 		{
-			name: "nil services",
+			name: "nil services (allowed for init)",
 			config: &Config{
 				Version:  1,
 				Services: nil,
 			},
-			wantErr: true,
-			errMsg:  "at least one service must be defined",
+			wantErr: false,
 		},
 		{
 			name: "service with absolute path",
@@ -420,12 +418,11 @@ services:
 			errMsg:  "unsupported config version",
 		},
 		{
-			name: "missing services",
+			name: "missing services (allowed for init)",
 			content: `version: 1
 services: {}
 `,
-			wantErr: true,
-			errMsg:  "at least one service must be defined",
+			wantErr: false,
 		},
 	}
 
