@@ -1,0 +1,45 @@
+{
+  "name": "@lightfastai/dual",
+  "version": "0.1.0",
+  "description": "General-purpose port management for multi-context development",
+  "keywords": [
+    "port",
+    "development",
+    "worktree",
+    "monorepo",
+    "cli",
+    "devtools"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lightfastai/dual.git",
+    "directory": "npm"
+  },
+  "homepage": "https://github.com/lightfastai/dual",
+  "bugs": {
+    "url": "https://github.com/lightfastai/dual/issues"
+  },
+  "license": "Apache-2.0",
+  "author": "Lightfast <hello@lightfast.ai>",
+  "bin": {
+    "dual": "./bin/dual.js"
+  },
+  "scripts": {
+    "postinstall": "node postinstall.js"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "dependencies": {
+    "tar": "^6.2.0"
+  }
+}

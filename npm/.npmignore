@@ -1,0 +1,16 @@
+# Don't publish test files
+test/
+
+# Don't publish git files
+.git/
+.gitignore
+
+# Don't publish editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# The binaries will be downloaded during postinstall, don't include them in the package
+bin/dual
+bin/dual.exe
