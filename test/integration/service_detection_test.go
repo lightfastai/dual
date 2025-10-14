@@ -59,11 +59,11 @@ func TestServiceAutoDetection(t *testing.T) {
 	h.AssertOutputContains(stderr, "could not auto-detect service")
 	h.AssertOutputContains(stderr, "Available services:")
 
-	// Test 4: --service flag override from non-service directory
-	t.Log("Test 4: --service flag override")
+	// Test 4: Explicit service argument to override auto-detection
+	t.Log("Test 4: Explicit service argument override")
 	stdout, stderr, exitCode = h.RunDualInDir(
 		filepath.Join(h.ProjectDir, "apps/web"),
-		"--service", "worker", "port",
+		"port", "worker",
 	)
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 	h.AssertOutputContains(stdout, "4103") // worker

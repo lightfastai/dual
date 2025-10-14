@@ -154,9 +154,10 @@ func TestAutoPortAssignment(t *testing.T) {
 		stdout, stderr, exitCode := h.RunDual("context", "create", ctx.branch)
 		h.AssertExitCode(exitCode, 0, stdout+stderr)
 
-		// Should auto-assign port
-		h.AssertOutputContains(stderr, "Auto-assigned base port:")
-		h.AssertOutputContains(stderr, fmt.Sprintf("%d", ctx.expectedPort))
+		// Should auto-assign port (output goes to stdout)
+		output := stdout + stderr
+		h.AssertOutputContains(output, "Auto-assigned base port:")
+		h.AssertOutputContains(output, fmt.Sprintf("%d", ctx.expectedPort))
 	}
 
 	// Verify all contexts have unique ports
@@ -354,11 +355,15 @@ func TestMultiProjectPortIsolation(t *testing.T) {
 	}
 
 	// Initialize first project
-	h.RunDualInDir(project1, "init")
 	initGitRepoInDir(t, project1)
 	createGitBranchInDir(t, project1, "main")
+	h.RunDualInDir(project1, "init")
 
-	h.CreateDirectory("../../project1/apps/web")
+	// Create service directory for project1
+	project1WebDir := filepath.Join(project1, "apps/web")
+	if err := os.MkdirAll(project1WebDir, 0755); err != nil {
+		t.Fatalf("failed to create project1 web directory: %v", err)
+	}
 	h.RunDualInDir(project1, "service", "add", "web", "--path", "apps/web")
 	h.RunDualInDir(project1, "context", "create", "main", "--base-port", "4100")
 
@@ -369,11 +374,15 @@ func TestMultiProjectPortIsolation(t *testing.T) {
 	}
 
 	// Initialize second project
-	h.RunDualInDir(project2, "init")
 	initGitRepoInDir(t, project2)
 	createGitBranchInDir(t, project2, "main")
+	h.RunDualInDir(project2, "init")
 
-	h.CreateDirectory("../../project2/apps/api")
+	// Create service directory for project2
+	project2ApiDir := filepath.Join(project2, "apps/api")
+	if err := os.MkdirAll(project2ApiDir, 0755); err != nil {
+		t.Fatalf("failed to create project2 api directory: %v", err)
+	}
 	h.RunDualInDir(project2, "service", "add", "api", "--path", "apps/api")
 	h.RunDualInDir(project2, "context", "create", "main", "--base-port", "4100")
 
