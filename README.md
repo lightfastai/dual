@@ -128,6 +128,63 @@ go build -o dual ./cmd/dual
 mv dual /usr/local/bin/
 ```
 
+### Shell Completions
+
+`dual` supports auto-completion for commands, flags, service names, and context names in bash, zsh, and fish shells.
+
+#### Bash
+
+```bash
+# Load completions for current session
+source <(dual completion bash)
+
+# Install completions permanently
+# Linux:
+dual completion bash | sudo tee /etc/bash_completion.d/dual > /dev/null
+
+# macOS (with Homebrew bash-completion):
+dual completion bash > $(brew --prefix)/etc/bash_completion.d/dual
+```
+
+#### Zsh
+
+```bash
+# Enable completion support (if not already enabled)
+echo "autoload -U compinit; compinit" >> ~/.zshrc
+
+# Install completions
+dual completion zsh > "${fpath[1]}/_dual"
+
+# Reload shell
+exec zsh
+```
+
+#### Fish
+
+```bash
+# Load completions for current session
+dual completion fish | source
+
+# Install completions permanently
+dual completion fish > ~/.config/fish/completions/dual.fish
+```
+
+**Features:**
+- Command and subcommand completion
+- Flag completion (e.g., `--service`, `--base-port`)
+- Dynamic service name completion (from `dual.config.yml`)
+- Dynamic context name completion (from registry)
+
+**Examples:**
+```bash
+# Type and press TAB to see available completions
+dual <TAB>                    # Shows all commands
+dual service <TAB>            # Shows service subcommands
+dual service remove <TAB>     # Shows available services
+dual context delete <TAB>     # Shows available contexts
+dual --service <TAB>          # Shows configured services
+```
+
 ## 🔌 Integration with Web Projects
 
 ### Using dual in package.json Scripts
@@ -821,7 +878,7 @@ Apache License 2.0 - see [LICENSE](LICENSE) for details.
 
 ## 🗺️ Roadmap
 
-### Completed (Wave 1 & 2)
+### Completed (Wave 1-4)
 - [x] Core port management
 - [x] Command wrapper with auto-detection
 - [x] Debug & verbose logging modes (#43)
@@ -829,9 +886,9 @@ Apache License 2.0 - see [LICENSE](LICENSE) for details.
 - [x] Complete context management (list, delete) (#36)
 - [x] Environment variable management with service-level overrides (#32, #40)
 - [x] Port conflict detection (#42)
+- [x] Shell completions (bash/zsh/fish) (#44)
 
 ### In Progress
-- [ ] Shell completions (bash/zsh/fish)
 - [ ] `dual doctor` - health check and cleanup
 
 ### Planned

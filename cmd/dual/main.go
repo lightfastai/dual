@@ -81,6 +81,10 @@ Built: {{.Annotations.date}}
 
 	// Allow unknown flags to be passed through to wrapped commands
 	rootCmd.FParseErrWhitelist.UnknownFlags = true
+
+	// Register completion function for --service flag
+	// This must be done after the flag is defined above
+	_ = rootCmd.RegisterFlagCompletionFunc("service", serviceCompletion)
 }
 
 // runCommandWrapper executes an arbitrary command with PORT environment variable injected

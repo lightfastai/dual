@@ -92,6 +92,9 @@ func init() {
 	contextCmd.AddCommand(contextListCmd)
 	contextCmd.AddCommand(contextDeleteCmd)
 	rootCmd.AddCommand(contextCmd)
+
+	// Register completion function for context delete command
+	contextDeleteCmd.ValidArgsFunction = contextCompletion
 }
 
 func runContextInfo(cmd *cobra.Command, args []string) error {

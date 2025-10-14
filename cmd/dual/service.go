@@ -88,6 +88,9 @@ func init() {
 	serviceCmd.AddCommand(serviceListCmd)
 	serviceCmd.AddCommand(serviceRemoveCmd)
 	rootCmd.AddCommand(serviceCmd)
+
+	// Register completion function for service remove command
+	serviceRemoveCmd.ValidArgsFunction = serviceNameCompletion
 }
 
 func runServiceAdd(cmd *cobra.Command, args []string) error {
