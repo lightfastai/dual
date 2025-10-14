@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/lightfastai/dual/internal/config"
@@ -10,9 +11,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	portVerbose bool
-)
+var portVerbose bool
 
 var portCmd = &cobra.Command{
 	Use:   "port [service]",
@@ -61,7 +60,7 @@ func runPort(cmd *cobra.Command, args []string) error {
 		// Auto-detect service
 		serviceName, err = service.DetectService(cfg, projectRoot)
 		if err != nil {
-			if err == service.ErrServiceNotDetected {
+			if errors.Is(err, service.ErrServiceNotDetected) {
 				return fmt.Errorf("could not auto-detect service from current directory\nAvailable services: %v\nHint: Run this command from within a service directory or specify the service name", getServiceNames(cfg))
 			}
 			return fmt.Errorf("failed to detect service: %w", err)
@@ -77,7 +76,7 @@ func runPort(cmd *cobra.Command, args []string) error {
 	// Calculate port
 	port, err := service.CalculatePort(cfg, reg, projectRoot, contextName, serviceName)
 	if err != nil {
-		if err == service.ErrContextNotFound {
+		if errors.Is(err, service.ErrContextNotFound) {
 			return fmt.Errorf("context %q not found in registry\nHint: Run 'dual context create' to create this context", contextName)
 		}
 		return fmt.Errorf("failed to calculate port: %w", err)

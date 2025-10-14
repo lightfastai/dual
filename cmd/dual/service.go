@@ -34,7 +34,7 @@ Optionally, you can specify an env file for the service using --env-file.`,
 func init() {
 	serviceAddCmd.Flags().StringVar(&servicePath, "path", "", "Relative path to the service directory (required)")
 	serviceAddCmd.Flags().StringVar(&serviceEnvFile, "env-file", "", "Relative path to the env file for the service (optional)")
-	serviceAddCmd.MarkFlagRequired("path")
+	_ = serviceAddCmd.MarkFlagRequired("path")
 
 	serviceCmd.AddCommand(serviceAddCmd)
 	rootCmd.AddCommand(serviceCmd)

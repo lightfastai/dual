@@ -7,7 +7,7 @@ import (
 )
 
 func TestParseConfig(t *testing.T) {
-	tests := []struct {
+	tests := []struct { //nolint:govet // Test struct optimization not critical
 		name    string
 		content string
 		wantErr bool
@@ -46,7 +46,7 @@ services:
 			// Create temporary file
 			tmpDir := t.TempDir()
 			configPath := filepath.Join(tmpDir, "dual.config.yml")
-			if err := os.WriteFile(configPath, []byte(tt.content), 0644); err != nil {
+			if err := os.WriteFile(configPath, []byte(tt.content), 0o644); err != nil {
 				t.Fatalf("failed to write test config: %v", err)
 			}
 
@@ -65,17 +65,17 @@ func TestValidateConfig(t *testing.T) {
 	apiDir := filepath.Join(tmpDir, "apps", "api")
 	envDir := filepath.Join(tmpDir, "apps", "web")
 
-	if err := os.MkdirAll(webDir, 0755); err != nil {
+	if err := os.MkdirAll(webDir, 0o755); err != nil {
 		t.Fatalf("failed to create test directory: %v", err)
 	}
-	if err := os.MkdirAll(apiDir, 0755); err != nil {
+	if err := os.MkdirAll(apiDir, 0o755); err != nil {
 		t.Fatalf("failed to create test directory: %v", err)
 	}
-	if err := os.MkdirAll(envDir, 0755); err != nil {
+	if err := os.MkdirAll(envDir, 0o755); err != nil {
 		t.Fatalf("failed to create test directory: %v", err)
 	}
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // Test struct optimization not critical
 		name    string
 		config  *Config
 		wantErr bool
@@ -182,17 +182,17 @@ func TestValidateService(t *testing.T) {
 	envFileDir := filepath.Join(tmpDir, "with-env")
 	testFile := filepath.Join(tmpDir, "file.txt")
 
-	if err := os.MkdirAll(validDir, 0755); err != nil {
+	if err := os.MkdirAll(validDir, 0o755); err != nil {
 		t.Fatalf("failed to create test directory: %v", err)
 	}
-	if err := os.MkdirAll(envFileDir, 0755); err != nil {
+	if err := os.MkdirAll(envFileDir, 0o755); err != nil {
 		t.Fatalf("failed to create test directory: %v", err)
 	}
-	if err := os.WriteFile(testFile, []byte("test"), 0644); err != nil {
+	if err := os.WriteFile(testFile, []byte("test"), 0o644); err != nil {
 		t.Fatalf("failed to create test file: %v", err)
 	}
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // Test struct optimization not critical
 		name    string
 		service Service
 		wantErr bool
@@ -287,7 +287,7 @@ func TestLoadConfig(t *testing.T) {
 	projectRoot := filepath.Join(tmpDir, "project")
 	nestedDir := filepath.Join(projectRoot, "apps", "web")
 
-	if err := os.MkdirAll(nestedDir, 0755); err != nil {
+	if err := os.MkdirAll(nestedDir, 0o755); err != nil {
 		t.Fatalf("failed to create test directory: %v", err)
 	}
 
@@ -298,7 +298,7 @@ services:
     path: apps/web
 `
 	configPath := filepath.Join(projectRoot, "dual.config.yml")
-	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+	if err := os.WriteFile(configPath, []byte(configContent), 0o644); err != nil {
 		t.Fatalf("failed to write test config: %v", err)
 	}
 
@@ -363,7 +363,7 @@ services:
 	// Test loading from directory without config
 	t.Run("no config found", func(t *testing.T) {
 		emptyDir := filepath.Join(tmpDir, "empty")
-		if err := os.MkdirAll(emptyDir, 0755); err != nil {
+		if err := os.MkdirAll(emptyDir, 0o755); err != nil {
 			t.Fatalf("failed to create test directory: %v", err)
 		}
 
@@ -388,11 +388,11 @@ func TestLoadConfigFrom(t *testing.T) {
 	tmpDir := t.TempDir()
 	webDir := filepath.Join(tmpDir, "apps", "web")
 
-	if err := os.MkdirAll(webDir, 0755); err != nil {
+	if err := os.MkdirAll(webDir, 0o755); err != nil {
 		t.Fatalf("failed to create test directory: %v", err)
 	}
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // Test struct optimization not critical
 		name    string
 		content string
 		wantErr bool
@@ -429,7 +429,7 @@ services: {}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			configPath := filepath.Join(tmpDir, "dual.config.yml")
-			if err := os.WriteFile(configPath, []byte(tt.content), 0644); err != nil {
+			if err := os.WriteFile(configPath, []byte(tt.content), 0o644); err != nil {
 				t.Fatalf("failed to write test config: %v", err)
 			}
 

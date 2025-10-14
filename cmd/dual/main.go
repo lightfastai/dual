@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -100,7 +101,7 @@ func runCommandWrapper(args []string) error {
 		// Auto-detect service
 		serviceName, err = service.DetectService(cfg, projectRoot)
 		if err != nil {
-			if err == service.ErrServiceNotDetected {
+			if errors.Is(err, service.ErrServiceNotDetected) {
 				return fmt.Errorf("could not auto-detect service from current directory\nAvailable services: %v\nHint: Run this command from within a service directory or use --service flag", getServiceNames(cfg))
 			}
 			return fmt.Errorf("failed to detect service: %w", err)
@@ -116,7 +117,7 @@ func runCommandWrapper(args []string) error {
 	// Calculate port
 	port, err := service.CalculatePort(cfg, reg, projectRoot, contextName, serviceName)
 	if err != nil {
-		if err == service.ErrContextNotFound {
+		if errors.Is(err, service.ErrContextNotFound) {
 			return fmt.Errorf("context %q not found in registry\nHint: Run 'dual context create' to create this context", contextName)
 		}
 		return fmt.Errorf("failed to calculate port: %w", err)
@@ -129,6 +130,7 @@ func runCommandWrapper(args []string) error {
 	cmdName := args[0]
 	cmdArgs := args[1:]
 
+	// #nosec G204 - Command name and args are controlled by dual's logic
 	cmd := exec.Command(cmdName, cmdArgs...)
 
 	// Set environment variables - preserve all existing, add/override PORT
@@ -143,7 +145,8 @@ func runCommandWrapper(args []string) error {
 	err = cmd.Run()
 	if err != nil {
 		// Check if it's an exit error with a specific code
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
 			os.Exit(exitErr.ExitCode())
 		}
 		// Other errors (command not found, etc.)
@@ -153,6 +156,7 @@ func runCommandWrapper(args []string) error {
 	return nil
 }
 
+// nolint:gocyclo // Command parsing logic is inherently complex
 func main() {
 	// Special handling: check if we should treat this as a command passthrough
 	// Look for --service flag first, or check if first non-flag arg is not a known command
@@ -164,14 +168,15 @@ func main() {
 		arg := os.Args[i]
 
 		// Parse --service flag
-		if arg == "--service" && i+1 < len(os.Args) {
+		switch {
+		case arg == "--service" && i+1 < len(os.Args):
 			serviceOverride = os.Args[i+1]
 			i++ // Skip the next arg
 			shouldPassthrough = true
-		} else if strings.HasPrefix(arg, "--service=") {
+		case strings.HasPrefix(arg, "--service="):
 			serviceOverride = strings.TrimPrefix(arg, "--service=")
 			shouldPassthrough = true
-		} else if !strings.HasPrefix(arg, "-") && firstNonFlagArg == "" {
+		case !strings.HasPrefix(arg, "-") && firstNonFlagArg == "":
 			firstNonFlagArg = arg
 		}
 	}

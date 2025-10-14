@@ -67,7 +67,7 @@ func TestCalculatePort_BasicCalculation(t *testing.T) {
 	reg := createTestRegistry()
 	calc := NewCalculator()
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // Test struct optimization not critical
 		name        string
 		projectPath string
 		contextName string
@@ -143,7 +143,7 @@ func TestCalculatePort_ErrorHandling(t *testing.T) {
 	reg := createTestRegistry()
 	calc := NewCalculator()
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // Test struct optimization not critical
 		name        string
 		projectPath string
 		contextName string
@@ -219,7 +219,7 @@ func TestGetServiceIndex(t *testing.T) {
 	cfg := createTestConfig()
 	calc := NewCalculator()
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // Test struct optimization not critical
 		serviceName string
 		expected    int
 	}{
@@ -304,7 +304,7 @@ func TestCalculatePort_PortFormula(t *testing.T) {
 
 	calc := NewCalculator()
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // Test struct optimization not critical
 		serviceName  string
 		expectedPort int
 	}{
@@ -390,7 +390,7 @@ func TestCalculateAllPorts_ErrorHandling(t *testing.T) {
 	cfg := createTestConfig()
 	reg := createTestRegistry()
 
-	tests := []struct {
+	tests := []struct { //nolint:govet // Test struct optimization not critical
 		name        string
 		projectPath string
 		contextName string

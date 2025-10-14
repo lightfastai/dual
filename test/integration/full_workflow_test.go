@@ -260,5 +260,5 @@ func TestContextAutoPortAssignment(t *testing.T) {
 
 // makeExecutable makes a file executable
 func makeExecutable(path string) error {
-	return os.Chmod(path, 0755)
+	return os.Chmod(path, 0o755)
 }

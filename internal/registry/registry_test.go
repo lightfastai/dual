@@ -44,13 +44,13 @@ func TestLoadRegistry_CorruptFile(t *testing.T) {
 
 	// Create registry directory
 	registryDir := filepath.Join(tmpDir, ".dual")
-	if err := os.MkdirAll(registryDir, 0755); err != nil {
+	if err := os.MkdirAll(registryDir, 0o755); err != nil {
 		t.Fatalf("Failed to create registry directory: %v", err)
 	}
 
 	// Write corrupt JSON
 	registryPath := filepath.Join(registryDir, "registry.json")
-	if err := os.WriteFile(registryPath, []byte("{corrupt json"), 0644); err != nil {
+	if err := os.WriteFile(registryPath, []byte("{corrupt json"), 0o644); err != nil {
 		t.Fatalf("Failed to write corrupt registry: %v", err)
 	}
 
@@ -75,7 +75,7 @@ func TestLoadRegistry_ValidFile(t *testing.T) {
 
 	// Create registry directory
 	registryDir := filepath.Join(tmpDir, ".dual")
-	if err := os.MkdirAll(registryDir, 0755); err != nil {
+	if err := os.MkdirAll(registryDir, 0o755); err != nil {
 		t.Fatalf("Failed to create registry directory: %v", err)
 	}
 
@@ -100,7 +100,7 @@ func TestLoadRegistry_ValidFile(t *testing.T) {
 	}
 
 	registryPath := filepath.Join(registryDir, "registry.json")
-	if err := os.WriteFile(registryPath, data, 0644); err != nil {
+	if err := os.WriteFile(registryPath, data, 0o644); err != nil {
 		t.Fatalf("Failed to write test registry: %v", err)
 	}
 
@@ -360,7 +360,7 @@ func TestListContexts(t *testing.T) {
 
 // TestFindNextAvailablePort tests finding the next available port
 func TestFindNextAvailablePort(t *testing.T) {
-	tests := []struct {
+	tests := []struct { //nolint:govet // Test struct optimization not critical
 		name         string
 		registry     *Registry
 		expectedPort int

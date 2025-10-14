@@ -9,9 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	forceInit bool
-)
+var forceInit bool
 
 var initCmd = &cobra.Command{
 	Use:   "init",
