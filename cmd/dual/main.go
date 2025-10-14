@@ -3,7 +3,13 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
+	"strings"
 
+	"github.com/lightfastai/dual/internal/config"
+	"github.com/lightfastai/dual/internal/context"
+	"github.com/lightfastai/dual/internal/registry"
+	"github.com/lightfastai/dual/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -14,6 +20,8 @@ var (
 	version = "dev"
 	commit  = "none"
 	date    = "unknown"
+	// Global flag for service override
+	serviceOverride string
 )
 
 var rootCmd = &cobra.Command{
@@ -25,10 +33,20 @@ port conflicts when working on multiple features simultaneously by
 automatically detecting the context and service, then injecting the
 appropriate PORT environment variable.`,
 	Version: version,
-	Run: func(cmd *cobra.Command, args []string) {
-		// If no subcommand is provided, show help
-		_ = cmd.Help()
+	// Disable default behavior for unknown commands
+	SilenceErrors: true,
+	// Handle unknown commands as passthrough
+	RunE: func(cmd *cobra.Command, args []string) error {
+		// If no args, show help
+		if len(args) == 0 {
+			return cmd.Help()
+		}
+
+		// This is a command passthrough - execute it with PORT env var
+		return runCommandWrapper(args)
 	},
+	// Don't show usage on errors from wrapped commands
+	SilenceUsage: true,
 }
 
 func init() {
@@ -47,9 +65,163 @@ Built: {{.Annotations.date}}
 
 	// Add version flag (cobra adds this automatically, but we ensure it's there)
 	rootCmd.Flags().BoolP("version", "v", false, "version for dual")
+
+	// Add global --service flag for command wrapper
+	rootCmd.PersistentFlags().StringVar(&serviceOverride, "service", "", "override service detection")
+
+	// Allow unknown flags to be passed through to wrapped commands
+	rootCmd.FParseErrWhitelist.UnknownFlags = true
+}
+
+// runCommandWrapper executes an arbitrary command with PORT environment variable injected
+func runCommandWrapper(args []string) error {
+	// Load config
+	cfg, projectRoot, err := config.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w\nHint: Run 'dual init' to create a configuration file", err)
+	}
+
+	// Detect context
+	contextName, err := context.DetectContext()
+	if err != nil {
+		return fmt.Errorf("failed to detect context: %w", err)
+	}
+
+	// Determine service name
+	var serviceName string
+	if serviceOverride != "" {
+		// Use --service flag override
+		serviceName = serviceOverride
+		// Validate service exists in config
+		if _, exists := cfg.Services[serviceName]; !exists {
+			return fmt.Errorf("service %q not found in config\nAvailable services: %v", serviceName, getServiceNames(cfg))
+		}
+	} else {
+		// Auto-detect service
+		serviceName, err = service.DetectService(cfg, projectRoot)
+		if err != nil {
+			if err == service.ErrServiceNotDetected {
+				return fmt.Errorf("could not auto-detect service from current directory\nAvailable services: %v\nHint: Run this command from within a service directory or use --service flag", getServiceNames(cfg))
+			}
+			return fmt.Errorf("failed to detect service: %w", err)
+		}
+	}
+
+	// Load registry
+	reg, err := registry.LoadRegistry()
+	if err != nil {
+		return fmt.Errorf("failed to load registry: %w", err)
+	}
+
+	// Calculate port
+	port, err := service.CalculatePort(cfg, reg, projectRoot, contextName, serviceName)
+	if err != nil {
+		if err == service.ErrContextNotFound {
+			return fmt.Errorf("context %q not found in registry\nHint: Run 'dual context create' to create this context", contextName)
+		}
+		return fmt.Errorf("failed to calculate port: %w", err)
+	}
+
+	// Print info message
+	fmt.Fprintf(os.Stderr, "[dual] Context: %s | Service: %s | Port: %d\n", contextName, serviceName, port)
+
+	// Prepare command
+	cmdName := args[0]
+	cmdArgs := args[1:]
+
+	cmd := exec.Command(cmdName, cmdArgs...)
+
+	// Set environment variables - preserve all existing, add/override PORT
+	cmd.Env = append(os.Environ(), fmt.Sprintf("PORT=%d", port))
+
+	// Stream output in real-time
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+
+	// Execute command
+	err = cmd.Run()
+	if err != nil {
+		// Check if it's an exit error with a specific code
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			os.Exit(exitErr.ExitCode())
+		}
+		// Other errors (command not found, etc.)
+		return fmt.Errorf("failed to execute command: %w", err)
+	}
+
+	return nil
 }
 
 func main() {
+	// Special handling: check if we should treat this as a command passthrough
+	// Look for --service flag first, or check if first non-flag arg is not a known command
+	shouldPassthrough := false
+	var firstNonFlagArg string
+
+	// Find first non-flag argument and check for --service
+	for i := 1; i < len(os.Args); i++ {
+		arg := os.Args[i]
+
+		// Parse --service flag
+		if arg == "--service" && i+1 < len(os.Args) {
+			serviceOverride = os.Args[i+1]
+			i++ // Skip the next arg
+			shouldPassthrough = true
+		} else if strings.HasPrefix(arg, "--service=") {
+			serviceOverride = strings.TrimPrefix(arg, "--service=")
+			shouldPassthrough = true
+		} else if !strings.HasPrefix(arg, "-") && firstNonFlagArg == "" {
+			firstNonFlagArg = arg
+		}
+	}
+
+	// If we found --service flag, we're in passthrough mode
+	// Or if first non-flag arg is not a known command
+	if firstNonFlagArg != "" {
+		isKnownCommand := false
+		for _, cmd := range rootCmd.Commands() {
+			if cmd.Name() == firstNonFlagArg || cmd.HasAlias(firstNonFlagArg) {
+				isKnownCommand = true
+				break
+			}
+		}
+		if !isKnownCommand {
+			shouldPassthrough = true
+		}
+	}
+
+	if shouldPassthrough && firstNonFlagArg != "" {
+		// Build args for wrapped command (without --service flag)
+		var wrappedArgs []string
+		skipNext := false
+
+		for i := 1; i < len(os.Args); i++ {
+			arg := os.Args[i]
+
+			if skipNext {
+				skipNext = false
+				continue
+			}
+
+			if arg == "--service" {
+				skipNext = true
+				continue
+			} else if strings.HasPrefix(arg, "--service=") {
+				continue
+			}
+
+			wrappedArgs = append(wrappedArgs, arg)
+		}
+
+		if err := runCommandWrapper(wrappedArgs); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// Normal cobra command execution
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
