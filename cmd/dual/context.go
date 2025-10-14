@@ -5,13 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"strings"
 
 	"github.com/lightfastai/dual/internal/config"
 	"github.com/lightfastai/dual/internal/context"
 	"github.com/lightfastai/dual/internal/registry"
+	"github.com/lightfastai/dual/internal/worktree"
 	"github.com/spf13/cobra"
 )
 
@@ -62,6 +60,12 @@ func runContextInfo(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w\nHint: Run 'dual init' to create a configuration file", err)
 	}
 
+	// Get the normalized project identifier for registry lookups
+	projectIdentifier, err := config.GetProjectIdentifier(projectRoot)
+	if err != nil {
+		return fmt.Errorf("failed to get project identifier: %w", err)
+	}
+
 	// Detect context
 	contextName, err := context.DetectContext()
 	if err != nil {
@@ -75,7 +79,7 @@ func runContextInfo(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get context info
-	ctx, err := reg.GetContext(projectRoot, contextName)
+	ctx, err := reg.GetContext(projectIdentifier, contextName)
 	if err != nil {
 		if errors.Is(err, registry.ErrContextNotFound) || errors.Is(err, registry.ErrProjectNotFound) {
 			return fmt.Errorf("context %q not found in registry\nHint: Run 'dual context create' to create this context", contextName)
@@ -142,6 +146,12 @@ func runContextCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to determine project root: %w\nHint: Make sure you're in a git repository or have a dual.config.yml file", err)
 	}
 
+	// Get the normalized project identifier for registry operations
+	projectIdentifier, err := config.GetProjectIdentifier(projectRoot)
+	if err != nil {
+		return fmt.Errorf("failed to get project identifier: %w", err)
+	}
+
 	// Load registry
 	reg, err := registry.LoadRegistry()
 	if err != nil {
@@ -149,8 +159,8 @@ func runContextCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Check if context already exists
-	if reg.ContextExists(projectRoot, contextName) {
-		existingContext, _ := reg.GetContext(projectRoot, contextName)
+	if reg.ContextExists(projectIdentifier, contextName) {
+		existingContext, _ := reg.GetContext(projectIdentifier, contextName)
 		return fmt.Errorf("context %q already exists for this project with base port %d\nUse a different name or delete the existing context first", contextName, existingContext.BasePort)
 	}
 
@@ -172,7 +182,7 @@ func runContextCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Set context in registry
-	if err := reg.SetContext(projectRoot, contextName, basePort, currentPath); err != nil {
+	if err := reg.SetContext(projectIdentifier, contextName, basePort, currentPath); err != nil {
 		return fmt.Errorf("failed to set context: %w", err)
 	}
 
@@ -182,31 +192,24 @@ func runContextCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("[dual] Created context %q\n", contextName)
-	fmt.Printf("  Project: %s\n", projectRoot)
+	fmt.Printf("  Project: %s\n", projectIdentifier)
 	fmt.Printf("  Base Port: %d\n", basePort)
 	fmt.Println("\nServices will be assigned ports starting from:", basePort+1)
 
 	return nil
 }
 
-// getProjectRoot attempts to find the project root using git or config file
+// getProjectRoot attempts to find the project root using git worktree-aware detection or config file
 func getProjectRoot() (string, error) {
-	// Try git first
-	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
-	output, err := cmd.Output()
+	// Try worktree-aware git detection first
+	wtDetector := worktree.NewDetector()
+	projectRoot, err := wtDetector.GetProjectRootFromCwd()
 	if err == nil {
-		gitRoot := strings.TrimSpace(string(output))
-		if gitRoot != "" {
-			// Convert to absolute path
-			absPath, err := filepath.Abs(gitRoot)
-			if err == nil {
-				return absPath, nil
-			}
-		}
+		return projectRoot, nil
 	}
 
 	// Fall back to config file search
-	_, projectRoot, err := config.LoadConfig()
+	_, projectRoot, err = config.LoadConfig()
 	if err == nil {
 		return projectRoot, nil
 	}

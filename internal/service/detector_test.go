@@ -283,59 +283,8 @@ func TestDetectService_RelativePaths(t *testing.T) {
 	}
 }
 
-// TestFindProjectRoot tests project root detection
-func TestFindProjectRoot(t *testing.T) {
-	tests := []struct { //nolint:govet // Test struct optimization not critical
-		name      string
-		gitOutput string
-		gitError  error
-		cwd       string
-		expected  string
-		wantErr   bool
-	}{
-		{
-			name:      "git repo - success",
-			gitOutput: "/project/path\n",
-			gitError:  nil,
-			cwd:       "/project/path/subdir",
-			expected:  "/project/path",
-			wantErr:   false,
-		},
-		{
-			name:      "git repo - with whitespace",
-			gitOutput: "  /project/path  \n",
-			gitError:  nil,
-			cwd:       "/project/path",
-			expected:  "/project/path",
-			wantErr:   false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			detector := &Detector{
-				gitCommand:   mockGitCommand(tt.gitOutput, tt.gitError),
-				getwd:        mockGetwd(tt.cwd, nil),
-				evalSymlinks: mockEvalSymlinks(map[string]string{}),
-			}
-
-			result, err := detector.FindProjectRoot()
-
-			if tt.wantErr {
-				if err == nil {
-					t.Errorf("expected error, got result: %q", result)
-				}
-			} else {
-				if err != nil {
-					t.Fatalf("unexpected error: %v", err)
-				}
-				if result != tt.expected {
-					t.Errorf("expected %q, got %q", tt.expected, result)
-				}
-			}
-		})
-	}
-}
+// TestFindProjectRoot is now primarily tested via integration tests and fallback tests
+// The git-based detection uses worktree.Detector which has its own comprehensive tests
 
 // TestFindProjectRoot_FallbackToConfigFile tests fallback to walking up for config file
 func TestFindProjectRoot_FallbackToConfigFile(t *testing.T) {

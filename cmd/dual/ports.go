@@ -53,6 +53,12 @@ func runPorts(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to detect context: %w", err)
 	}
 
+	// Get the normalized project identifier for registry operations
+	projectIdentifier, err := config.GetProjectIdentifier(projectRoot)
+	if err != nil {
+		return fmt.Errorf("failed to get project identifier: %w", err)
+	}
+
 	// Load registry
 	reg, err := registry.LoadRegistry()
 	if err != nil {
@@ -60,7 +66,7 @@ func runPorts(cmd *cobra.Command, args []string) error {
 	}
 
 	// Get context info
-	ctx, err := reg.GetContext(projectRoot, contextName)
+	ctx, err := reg.GetContext(projectIdentifier, contextName)
 	if err != nil {
 		if errors.Is(err, registry.ErrContextNotFound) || errors.Is(err, registry.ErrProjectNotFound) {
 			return fmt.Errorf("context %q not found in registry\nHint: Run 'dual context create' to create this context", contextName)
@@ -69,7 +75,7 @@ func runPorts(cmd *cobra.Command, args []string) error {
 	}
 
 	// Calculate all ports
-	ports, err := service.CalculateAllPorts(cfg, reg, projectRoot, contextName)
+	ports, err := service.CalculateAllPorts(cfg, reg, projectIdentifier, contextName)
 	if err != nil {
 		return fmt.Errorf("failed to calculate ports: %w", err)
 	}

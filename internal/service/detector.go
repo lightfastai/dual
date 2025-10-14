@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/lightfastai/dual/internal/config"
+	"github.com/lightfastai/dual/internal/worktree"
 )
 
 // ErrServiceNotDetected is returned when no service matches the current working directory
@@ -98,27 +99,29 @@ func (d *Detector) DetectService(cfg *config.Config, projectRoot string) (string
 }
 
 // FindProjectRoot attempts to find the project root using git or by walking up the directory tree
+// If in a git worktree, returns the parent repository path to ensure all worktrees share the same project root
 func (d *Detector) FindProjectRoot() (string, error) {
-	// Try git first
-	output, err := d.gitCommand("rev-parse", "--show-toplevel")
-	if err == nil {
-		projectRoot := strings.TrimSpace(output)
-		if projectRoot != "" {
-			// Resolve symlinks for consistency
-			resolved, err := d.evalSymlinks(projectRoot)
-			if err != nil {
-				return projectRoot, nil
-			}
-			return resolved, nil
-		}
-	}
+	// Try using worktree-aware git detection first
+	wtDetector := worktree.NewDetector()
 
-	// Fallback: walk up directory tree looking for dual.config.yml
+	// Get current working directory
 	cwd, err := d.getwd()
 	if err != nil {
 		return "", fmt.Errorf("failed to get current directory: %w", err)
 	}
 
+	// Try to find git root (could be worktree or normal repo)
+	gitRoot, err := wtDetector.FindGitRoot(cwd)
+	if err == nil {
+		// Found a git root, get the project root (accounting for worktrees)
+		projectRoot, err := wtDetector.GetProjectRoot(gitRoot)
+		if err == nil {
+			return projectRoot, nil
+		}
+		// If GetProjectRoot fails, fall through to config-based detection
+	}
+
+	// Fallback: walk up directory tree looking for dual.config.yml
 	currentDir := cwd
 	for {
 		configPath := filepath.Join(currentDir, config.ConfigFileName)

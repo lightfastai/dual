@@ -25,11 +25,11 @@ func TestMultiWorktreeSetup(t *testing.T) {
 	h.RunDual("service", "add", "web", "--path", "apps/web")
 	h.RunDual("service", "add", "api", "--path", "apps/api")
 
-	// Commit the service directories so they appear in worktrees
+	// Commit the config and service directories so they appear in worktrees
 	h.WriteFile("apps/web/.gitkeep", "")
 	h.WriteFile("apps/api/.gitkeep", "")
 	h.RunGitCommand("add", ".")
-	h.RunGitCommand("commit", "-m", "Add service directories")
+	h.RunGitCommand("commit", "-m", "Add dual config and service directories")
 
 	// Create context for main branch
 	t.Log("Step 2: Create context for main branch")
@@ -127,10 +127,10 @@ func TestWorktreeContextIsolation(t *testing.T) {
 	h.CreateDirectory("apps/web")
 	h.RunDual("service", "add", "web", "--path", "apps/web")
 
-	// Commit service directories
+	// Commit config and service directories
 	h.WriteFile("apps/web/.gitkeep", "")
 	h.RunGitCommand("add", ".")
-	h.RunGitCommand("commit", "-m", "Add service directories")
+	h.RunGitCommand("commit", "-m", "Add dual config and service directories")
 
 	// Create multiple worktrees with different contexts
 	t.Log("Creating multiple worktrees")
@@ -192,10 +192,10 @@ func TestWorktreeWithDualContextFile(t *testing.T) {
 	h.CreateDirectory("apps/web")
 	h.RunDual("service", "add", "web", "--path", "apps/web")
 
-	// Commit service directories
+	// Commit config and service directories
 	h.WriteFile("apps/web/.gitkeep", "")
 	h.RunGitCommand("add", ".")
-	h.RunGitCommand("commit", "-m", "Add service directories")
+	h.RunGitCommand("commit", "-m", "Add dual config and service directories")
 
 	// Create context for main
 	h.RunDual("context", "create", "main", "--base-port", "4100")
@@ -235,11 +235,11 @@ func TestWorktreeServiceDetection(t *testing.T) {
 	h.RunDual("service", "add", "web", "--path", "apps/frontend/web")
 	h.RunDual("service", "add", "api", "--path", "apps/backend/api")
 
-	// Commit service directories
+	// Commit config and service directories
 	h.WriteFile("apps/frontend/web/.gitkeep", "")
 	h.WriteFile("apps/backend/api/.gitkeep", "")
 	h.RunGitCommand("add", ".")
-	h.RunGitCommand("commit", "-m", "Add service directories")
+	h.RunGitCommand("commit", "-m", "Add dual config and service directories")
 
 	// Create contexts
 	h.RunDual("context", "create", "main", "--base-port", "4100")
