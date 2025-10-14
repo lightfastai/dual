@@ -887,9 +887,7 @@ Apache License 2.0 - see [LICENSE](LICENSE) for details.
 - [x] Environment variable management with service-level overrides (#32, #40)
 - [x] Port conflict detection (#42)
 - [x] Shell completions (bash/zsh/fish) (#44)
-
-### In Progress
-- [ ] `dual doctor` - health check and cleanup
+- [x] `dual doctor` - health check and cleanup (#38)
 
 ### Planned
 - [ ] Visual dashboard (`dual ui`)
