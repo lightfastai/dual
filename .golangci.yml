@@ -21,8 +21,6 @@ linters-settings:
     enabled-checks:
       - elseif
       - exitAfterDefer
-  govet:
-    fieldalignment: 0  # Disable field alignment for test files
 
 issues:
   exclude-rules:
