@@ -20,6 +20,7 @@ func TestLoadRegistry_EmptyFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadRegistry() failed: %v", err)
 	}
+	defer registry.Close()
 
 	if registry == nil {
 		t.Fatal("LoadRegistry() returned nil registry")
@@ -59,6 +60,7 @@ func TestLoadRegistry_CorruptFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadRegistry() failed on corrupt file: %v", err)
 	}
+	defer registry.Close()
 
 	if len(registry.Projects) != 0 {
 		t.Errorf("Expected empty registry after corruption, got %d projects", len(registry.Projects))
@@ -109,6 +111,7 @@ func TestLoadRegistry_ValidFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadRegistry() failed: %v", err)
 	}
+	defer registry.Close()
 
 	if len(registry.Projects) != 1 {
 		t.Errorf("Expected 1 project, got %d", len(registry.Projects))
@@ -177,6 +180,7 @@ func TestSaveRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to load saved registry: %v", err)
 	}
+	defer loadedRegistry.Close()
 
 	if len(loadedRegistry.Projects) != 1 {
 		t.Errorf("Expected 1 project, got %d", len(loadedRegistry.Projects))

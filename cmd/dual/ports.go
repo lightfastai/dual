@@ -64,6 +64,7 @@ func runPorts(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
 	}
+	defer reg.Close()
 
 	// Get context info
 	ctx, err := reg.GetContext(projectIdentifier, contextName)

@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/lightfastai/dual/internal/logger"
 )
 
 const (
@@ -40,16 +42,25 @@ func NewDetector() *Detector {
 // 3. "default" (fallback)
 func (d *Detector) DetectContext() (string, error) {
 	// Priority 1: Try git branch
+	logger.Debug("Checking for git branch...")
 	if branch, err := d.detectGitBranch(); err == nil && branch != "" {
+		logger.Debug("Git branch: %s", branch)
+		logger.Success("Context: %s", branch)
 		return branch, nil
 	}
+	logger.Debug("Git branch: not found")
 
 	// Priority 2: Look for .dual-context file
+	logger.Debug("Checking for .dual-context file...")
 	if context, err := d.findDualContextFile(); err == nil && context != "" {
+		logger.Debug(".dual-context file: %s", context)
+		logger.Success("Context: %s", context)
 		return context, nil
 	}
+	logger.Debug(".dual-context file: not found")
 
 	// Priority 3: Return default
+	logger.Success("Context: %s", DefaultContext)
 	return DefaultContext, nil
 }
 

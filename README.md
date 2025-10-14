@@ -69,6 +69,10 @@ dual pnpm dev
 - **Vercel-proof**: Never writes to `.vercel/.env.development.local`
 - **Fast**: Native Go binary, instant startup
 - **Portable**: Config can be committed, registry is local
+- **Complete CRUD**: Full lifecycle management for services and contexts
+- **Environment management**: Set and manage environment variables with service-level overrides
+- **Debug & verbose logging**: Built-in debugging and verbose output modes
+- **Port conflict detection**: Automatic detection of duplicate base ports and in-use warnings
 
 ## 📦 Installation
 
@@ -124,6 +128,10 @@ dual service add api --path apps/api --env-file .env
 
 # For a single-service project
 dual service add app --path . --env-file .env.local
+
+# List services to verify
+dual service list
+dual service list --ports  # Show port assignments
 ```
 
 ### 3. Create contexts
@@ -135,6 +143,10 @@ dual context create main --base-port 4100
 # Feature branch in worktree gets different ports (4200 block)
 cd ~/Code/myproject-wt/feature-auth
 dual context create feature-auth --base-port 4200
+
+# List contexts to verify
+dual context list
+dual context list --ports  # Show port ranges
 ```
 
 ### 4. Run commands with dual
@@ -149,6 +161,12 @@ dual npm start
 # Works with any command
 dual bun run dev
 dual cargo run
+
+# Enable verbose mode to see what's happening
+dual --verbose pnpm dev
+
+# Debug mode for troubleshooting
+dual --debug pnpm dev
 ```
 
 ## 📖 Usage
@@ -182,15 +200,62 @@ dual --service api pnpm dev
 
 ### Management Commands
 
+#### Initialization
 ```bash
 # Initialize project
 dual init
+```
 
+#### Service Management
+```bash
 # Add service
 dual service add <name> --path <path> --env-file <file>
 
+# List services
+dual service list
+dual service list --ports  # Show port assignments
+dual service list --json   # JSON output
+
+# Remove service
+dual service remove <name>
+```
+
+#### Context Management
+```bash
 # Create context
 dual context create [name] --base-port <port>
+
+# List contexts
+dual context list
+dual context list --ports  # Show port ranges
+dual context list --json   # JSON output
+
+# Delete context
+dual context delete <name>
+```
+
+#### Environment Management
+```bash
+# Show environment summary
+dual env
+dual env show
+
+# Set environment variables
+dual env set <key> <value>                      # Global override
+dual env set --service <name> <key> <value>     # Service-specific
+
+# Remove overrides
+dual env unset <key>
+dual env unset --service <name> <key>
+
+# Export merged environment
+dual env export
+
+# Validate configuration
+dual env check
+
+# Compare environments
+dual env diff <context1> <context2>
 ```
 
 ### Query Commands
@@ -207,6 +272,40 @@ dual ports
 
 # Show current context info
 dual context
+```
+
+### Debug & Logging Options
+
+```bash
+# Verbose mode - show detailed execution info
+dual --verbose pnpm dev
+dual -v pnpm dev
+
+# Debug mode - show internal debugging information
+dual --debug pnpm dev
+dual -d pnpm dev
+
+# Environment variable alternative
+DUAL_DEBUG=1 dual pnpm dev
+```
+
+**Verbose output example:**
+```
+[dual] Loading config from: /Users/dev/Code/myproject/dual.config.yml
+[dual] Detected context: feature-auth
+[dual] Detected service: web
+[dual] Calculated port: 4201
+[dual] Executing: pnpm dev
+[dual] Environment: PORT=4201
+```
+
+**Debug output example:**
+```
+[dual:debug] Config loaded: 3 services
+[dual:debug] Registry path: /Users/dev/.dual/registry.json
+[dual:debug] Context detection: git branch = feature-auth
+[dual:debug] Service detection: matched path apps/web -> web
+[dual:debug] Port calculation: basePort=4200, serviceIndex=1, port=4201
 ```
 
 ### Utility Commands
@@ -325,6 +424,24 @@ Matches current working directory against service paths:
 # Match: "web" ✓
 ```
 
+### Port Conflict Detection
+
+`dual` automatically detects and warns about port conflicts:
+
+**Duplicate base ports across contexts:**
+```bash
+dual context create feature-b --base-port 4200
+# Warning: Base port 4200 is already used by context 'feature-a'
+# This will cause port conflicts. Consider using a different base port.
+```
+
+**Ports currently in use:**
+```bash
+dual pnpm dev
+# Warning: Port 4201 is currently in use by another process
+# Suggestion: Use base ports 4300-4399 (available)
+```
+
 For detailed architecture information, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## 💼 Real-World Workflows
@@ -371,6 +488,29 @@ dual service add app --path . --env-file .env
 dual context create main --base-port 6100
 
 # No conflicts between projects!
+```
+
+### Managing Environment Variables
+
+```bash
+# Set global environment override (applies to all services)
+dual env set API_URL https://api.staging.example.com
+
+# Set service-specific override
+dual env set --service api DATABASE_URL postgres://localhost/feature_db
+dual env set --service web NEXT_PUBLIC_API_URL https://localhost:4201
+
+# View merged environment for current service
+dual env show
+
+# Export environment for use in scripts
+eval $(dual env export)
+
+# Validate configuration
+dual env check
+
+# Compare environments between contexts
+dual env diff main feature-auth
 ```
 
 ### CI/CD Integration
@@ -461,13 +601,24 @@ Apache License 2.0 - see [LICENSE](LICENSE) for details.
 
 ## 🗺️ Roadmap
 
+### Completed (Wave 1 & 2)
 - [x] Core port management
 - [x] Command wrapper with auto-detection
+- [x] Debug & verbose logging modes (#43)
+- [x] Complete service management (list, remove) (#37)
+- [x] Complete context management (list, delete) (#36)
+- [x] Environment variable management with service-level overrides (#32, #40)
+- [x] Port conflict detection (#42)
+
+### In Progress
 - [ ] Shell completions (bash/zsh/fish)
 - [ ] `dual doctor` - health check and cleanup
+
+### Planned
 - [ ] Visual dashboard (`dual ui`)
 - [ ] Windows support
 - [ ] Integration with tmux/terminal multiplexers
+- [ ] Environment variable templates
 
 ## 🙏 Credits
 

@@ -9,7 +9,9 @@ Real-world examples and workflows for using `dual` in different scenarios.
 - [Git Worktrees Workflow](#git-worktrees-workflow)
 - [Multiple Clones Workflow](#multiple-clones-workflow)
 - [Vercel Integration](#vercel-integration)
+- [Environment Variable Management](#environment-variable-management)
 - [CI/CD Integration](#cicd-integration)
+- [Debug & Troubleshooting](#debug--troubleshooting)
 - [Team Collaboration](#team-collaboration)
 - [Advanced Scenarios](#advanced-scenarios)
 
@@ -423,6 +425,348 @@ dual vercel preview  # Would use same port concept
 
 ---
 
+## Environment Variable Management
+
+### Scenario
+
+You need to manage different environment configurations across multiple development contexts. Each branch/context might need different database URLs, API keys, debug flags, or service-specific configurations.
+
+### Basic Setup
+
+```bash
+cd ~/Code/my-app
+dual init
+dual service add web --path apps/web --env-file .env.local
+dual service add api --path apps/api --env-file .env
+dual service add worker --path apps/worker --env-file .env
+
+# Create contexts
+dual context create main --base-port 4100
+dual context create feature-auth --base-port 4200
+```
+
+### Workflow 1: Global Environment Overrides
+
+Set environment variables that apply to all services in a context.
+
+```bash
+# Switch to main branch
+git checkout main
+
+# Set production-like database for main branch
+dual env set DATABASE_URL "mysql://localhost/myapp_main"
+dual env set LOG_LEVEL "info"
+dual env set DEBUG "false"
+
+# Check what's set
+dual env show
+# Output:
+# Base:      .env (12 vars)
+# Overrides: 3 vars
+# Effective: 15 vars total
+#
+# Overrides for context 'main':
+#   DATABASE_URL=mysql://localhost/myapp_main...
+#   LOG_LEVEL=info
+#   DEBUG=false
+```
+
+Now switch to feature branch with different configuration:
+
+```bash
+# Switch to feature branch
+git checkout feature-auth
+
+# Set development database for feature branch
+dual env set DATABASE_URL "mysql://localhost/myapp_auth"
+dual env set LOG_LEVEL "debug"
+dual env set DEBUG "true"
+dual env set AUTH_DEBUG "true"
+
+# Run services - they automatically get the feature-auth overrides
+cd apps/api
+dual pnpm dev
+# API now uses mysql://localhost/myapp_auth with debug enabled
+```
+
+### Workflow 2: Service-Specific Overrides
+
+Different services in the same context can have different configurations.
+
+```bash
+# Main context: Production-like setup
+git checkout main
+
+# API uses MySQL
+dual env set --service api DATABASE_URL "mysql://localhost/api_main"
+dual env set --service api API_TIMEOUT "30s"
+dual env set --service api MAX_CONNECTIONS "100"
+
+# Web uses PostgreSQL for user data
+dual env set --service web DATABASE_URL "postgres://localhost/web_main"
+dual env set --service web SESSION_TIMEOUT "3600"
+
+# Worker uses Redis for job queue
+dual env set --service worker REDIS_URL "redis://localhost:6379/0"
+dual env set --service worker WORKER_CONCURRENCY "5"
+
+# View service-specific overrides
+dual env show --service api
+# Output:
+# Base:      .env (12 vars)
+# Overrides: 5 vars (including 3 service-specific for 'api')
+# Effective: 17 vars total
+#
+# Overrides for context 'main':
+#   LOG_LEVEL=info (global)
+#   DEBUG=false (global)
+#   DATABASE_URL=mysql://localhost/api_main (api)
+#   API_TIMEOUT=30s (api)
+#   MAX_CONNECTIONS=100 (api)
+```
+
+### Workflow 3: PlanetScale Branch Workflow
+
+Common pattern: Use PlanetScale database branches that match your git branches.
+
+```bash
+# Main branch uses main database branch
+git checkout main
+dual env set DATABASE_URL "mysql://user:pass@aws.connect.psdb.cloud/myapp?sslaccept=strict&sslcert=/etc/ssl/cert.pem"
+
+# Create feature branch
+git checkout -b feature-payment
+dual context create feature-payment --base-port 4300
+
+# Create PlanetScale branch (outside dual)
+pscale branch create myapp feature-payment
+
+# Get connection string for PlanetScale branch
+PSDB_URL=$(pscale connect myapp feature-payment --format json | jq -r .url)
+
+# Set it in dual context
+dual env set DATABASE_URL "$PSDB_URL"
+
+# Now your feature branch uses the feature database branch
+cd apps/api
+dual pnpm dev
+# API connects to feature-payment database branch
+```
+
+### Workflow 4: Environment Diff Before Merge
+
+Before merging a feature branch, check what environment differences exist.
+
+```bash
+# You're on feature-auth branch, ready to merge to main
+git checkout feature-auth
+
+# Check environment differences
+dual env diff main feature-auth
+# Output:
+# Comparing environments: main → feature-auth
+#
+# Changed:
+#   DATABASE_URL: mysql://localhost/myapp_main → mysql://localhost/myapp_auth
+#   LOG_LEVEL: info → debug
+#   DEBUG: false → true
+#
+# Added:
+#   AUTH_DEBUG=true
+#   JWT_SECRET=test_secret_123
+#
+# Removed:
+#   LEGACY_MODE=true
+
+# Review the differences and decide:
+# 1. Should JWT_SECRET be added to main?
+# 2. Should LEGACY_MODE be kept in main?
+# 3. Update main with necessary changes before merge
+```
+
+### Workflow 5: Environment Export for CI/CD
+
+Export merged environment for deployment or CI/CD.
+
+```bash
+# Export as dotenv format
+dual env export > .env.production
+cat .env.production
+# NODE_ENV=production
+# DATABASE_URL=mysql://localhost/myapp_main
+# LOG_LEVEL=info
+# DEBUG=false
+# PORT=0
+# ...
+
+# Export as JSON for processing
+dual env export --format=json > env.json
+cat env.json | jq '.DATABASE_URL'
+# "mysql://localhost/myapp_main"
+
+# Export as shell format for sourcing
+dual env export --format=shell > env.sh
+source env.sh
+echo $DATABASE_URL
+# mysql://localhost/myapp_main
+
+# Export service-specific environment
+dual env export --service api --format=dotenv > .env.api
+```
+
+### Workflow 6: Environment Validation
+
+Check environment configuration before deployment.
+
+```bash
+# Validate current context
+dual env check
+# Output:
+# ✓ Base environment file exists: .env (12 vars)
+# ✓ Context detected: main
+# ✓ Context has 3 environment override(s) (3 global, 0 service-specific)
+#
+# ✓ Environment configuration is valid
+
+# In CI/CD pipeline
+dual env check || exit 1
+dual env export --format=dotenv > .env.deploy
+```
+
+### Workflow 7: Multi-Service Different Databases
+
+Each service has its own database for development isolation.
+
+```bash
+# Main context
+git checkout main
+
+# API service: Main MySQL database
+dual env set --service api DATABASE_URL "mysql://localhost/api_main"
+dual env set --service api DB_POOL_SIZE "20"
+
+# Web service: User PostgreSQL database
+dual env set --service web DATABASE_URL "postgres://localhost/users_main"
+dual env set --service web DB_SSL "true"
+
+# Worker service: Separate MySQL for job state
+dual env set --service worker DATABASE_URL "mysql://localhost/jobs_main"
+dual env set --service worker DB_TIMEOUT "60s"
+
+# Analytics service: MongoDB
+dual env set --service analytics DATABASE_URL "mongodb://localhost/analytics_main"
+
+# Each service now connects to its own database
+cd apps/api && dual pnpm dev        # Uses MySQL
+cd apps/web && dual pnpm dev        # Uses PostgreSQL
+cd apps/worker && dual pnpm dev     # Uses MySQL (different DB)
+cd apps/analytics && dual pnpm dev  # Uses MongoDB
+```
+
+### Workflow 8: Removing Environment Overrides
+
+Clean up overrides when no longer needed.
+
+```bash
+# Remove global override
+dual env unset DATABASE_URL
+# Output:
+# Removed override for DATABASE_URL in context 'main'
+# Fallback to base value: DATABASE_URL=mysql://localhost/defaultdb
+
+# Remove service-specific override
+dual env unset --service api API_TIMEOUT
+# Output:
+# Removed override for API_TIMEOUT in service 'api' for context 'main'
+
+# Remove multiple overrides
+dual env unset DEBUG
+dual env unset LOG_LEVEL
+dual env unset CACHE_TTL
+```
+
+### Workflow 9: Viewing Environment Layers
+
+Understand how environment variables are layered.
+
+```bash
+# Show all variables (base + overrides)
+dual env show --values
+# Base:      .env (12 vars)
+# Overrides: 5 vars
+# Effective: 17 vars total
+#
+# Base variables:
+#   NODE_ENV=development
+#   API_KEY=abc123
+#   REDIS_URL=redis://localhost:6379
+#   ...
+#
+# Overrides for context 'main':
+#   DATABASE_URL=mysql://localhost/myapp_main
+#   DEBUG=true
+#   LOG_LEVEL=debug
+#   API_TIMEOUT=30s (api)
+#   MAX_CONNECTIONS=100 (api)
+
+# Show only base variables
+dual env show --base-only
+# Base environment (.env):
+# NODE_ENV
+# API_KEY
+# REDIS_URL
+# DATABASE_HOST
+# DATABASE_PORT
+# ...
+
+# Show only overrides
+dual env show --overrides-only --values
+# Overrides for context 'main':
+# DATABASE_URL=mysql://localhost/myapp_main
+# DEBUG=true
+# LOG_LEVEL=debug
+```
+
+### Environment Priority
+
+Environment variables are resolved in this priority order (highest to lowest):
+
+1. **Runtime injection** (highest) - PORT set by dual wrapper
+2. **Service-specific overrides** - Set via `dual env set --service`
+3. **Context overrides** - Set via `dual env set`
+4. **Base environment file** (lowest) - Loaded from dual.config.yml
+
+Example:
+
+```bash
+# Base .env file
+echo "DATABASE_URL=mysql://localhost/default" > .env
+echo "LOG_LEVEL=info" >> .env
+
+# Set context override
+dual env set DATABASE_URL "mysql://localhost/main_db"
+
+# Set service-specific override
+dual env set --service api DATABASE_URL "mysql://localhost/api_db"
+
+# Priority resolution for API service:
+# 1. Service override wins: mysql://localhost/api_db
+dual --service api env show --values
+# DATABASE_URL=mysql://localhost/api_db (from api service override)
+
+# Priority resolution for web service:
+# 1. No service override
+# 2. Context override wins: mysql://localhost/main_db
+dual --service web env show --values
+# DATABASE_URL=mysql://localhost/main_db (from context override)
+```
+
+### Cross-Reference
+
+For complete syntax and options, see [USAGE.md Environment Management](USAGE.md#environment-management).
+
+---
+
 ## CI/CD Integration
 
 ### Scenario
@@ -570,6 +914,405 @@ fi
 
 ---
 
+## Debug & Troubleshooting
+
+### Scenario
+
+You need to diagnose issues with port detection, service detection, context resolution, or environment variable loading. `dual` provides verbose and debug modes to help troubleshoot problems.
+
+### Workflow 1: Using Verbose Mode
+
+Verbose mode shows detailed operation steps.
+
+```bash
+# Check port with verbose output
+dual --verbose port api
+# Output:
+# Loading configuration from /Users/dev/Code/myproject/dual.config.yml
+# Detected 3 services: api, web, worker
+# Detecting context...
+# Context detected: main (from git branch)
+# Loading registry from ~/.dual/registry.json
+# Found context 'main' with base port 4100
+# Calculating port for service 'api'...
+# Service 'api' is at index 0 (alphabetically sorted)
+# Port calculation: 4100 + 0 + 1 = 4101
+# [dual] Context: main | Service: api | Port: 4101
+
+# Run command with verbose output
+dual --verbose pnpm dev
+# Output:
+# Loading configuration...
+# Detecting context...
+# Detecting service from /Users/dev/Code/myproject/apps/web
+# Service detected: web
+# Calculating port...
+# [dual] Context: main | Service: web | Port: 4102
+# Executing command: pnpm dev
+# [command output follows...]
+```
+
+### Workflow 2: Using Debug Mode
+
+Debug mode shows maximum detail including internal state.
+
+```bash
+# Debug port calculation
+dual --debug port api
+# Output:
+# [DEBUG] Config file: /Users/dev/Code/myproject/dual.config.yml
+# [DEBUG] Project root: /Users/dev/Code/myproject
+# [DEBUG] Services loaded: 3
+# [DEBUG]   - api: path=apps/api envFile=.env
+# [DEBUG]   - web: path=apps/web envFile=.vercel/.env.development.local
+# [DEBUG]   - worker: path=apps/worker envFile=.env
+# [DEBUG] Detecting context...
+# [DEBUG] Checking git branch...
+# [DEBUG] Git command: git branch --show-current
+# [DEBUG] Git output: main
+# [DEBUG] Context detected: main (method: git)
+# [DEBUG] Loading registry from ~/.dual/registry.json
+# [DEBUG] Registry contains 2 projects
+# [DEBUG] Found project: /Users/dev/Code/myproject
+# [DEBUG] Found context 'main' with base port 4100
+# [DEBUG] Calculating port for service 'api'
+# [DEBUG] Services alphabetically: [api web worker]
+# [DEBUG] Service 'api' index: 0
+# [DEBUG] Port: 4100 + 0 + 1 = 4101
+# [dual] Context: main | Service: api | Port: 4101
+
+# Debug environment loading
+dual --debug env show
+# Output:
+# [DEBUG] Loading base environment from .env
+# [DEBUG] Base environment contains 12 variables
+# [DEBUG] Loading context overrides for 'main'
+# [DEBUG] Found 3 global overrides
+# [DEBUG] Found 2 service-specific overrides for 'api'
+# [DEBUG] Merging environment layers...
+# [DEBUG] Final environment: 17 variables
+# Base:      .env (12 vars)
+# Overrides: 5 vars (including 2 service-specific for 'api')
+# Effective: 17 vars total
+```
+
+### Workflow 3: Troubleshooting Port Conflicts
+
+Diagnose and resolve port conflicts.
+
+```bash
+# Scenario: Port already in use
+dual pnpm dev
+# Output:
+# Error: Port 4101 is already in use
+
+# Step 1: Find what's using the port
+lsof -i :4101
+# Output:
+# COMMAND   PID USER   FD   TYPE DEVICE SIZE/OFF NODE NAME
+# node    12345 dev   21u  IPv4 0x1234      0t0  TCP *:4101 (LISTEN)
+
+# Step 2: Debug to see which context/service is assigned this port
+dual --debug ports
+# Output:
+# [DEBUG] Context: main
+# [DEBUG] Base port: 4100
+# [DEBUG] Services: [api web worker]
+# Context: main (base: 4100)
+# api:    4101
+# web:    4102
+# worker: 4103
+
+# Solution 1: Kill the conflicting process
+kill -9 12345
+
+# Solution 2: Check if another context is using this port
+dual context list --ports
+# Output:
+# NAME          BASE PORT  PORTS
+# main          4100       api:4101, web:4102, worker:4103
+# feature-old   4100       api:4101, web:4102, worker:4103  ← Duplicate!
+
+# Fix: Delete old context or change its base port
+dual context delete feature-old --force
+
+# Solution 3: Create new context with different base port
+dual context create main-v2 --base-port 4500
+```
+
+### Workflow 4: Troubleshooting Service Detection
+
+Diagnose service detection issues.
+
+```bash
+# Scenario: Service not detected
+cd ~/Code/myproject/apps/web
+dual port
+# Output:
+# Error: could not auto-detect service from current directory
+# Available services: [api web worker]
+# Hint: Run this command from within a service directory or use --service flag
+
+# Step 1: Debug service detection
+dual --debug port
+# Output:
+# [DEBUG] Current directory: /Users/dev/Code/myproject/apps/web
+# [DEBUG] Resolving symlinks...
+# [DEBUG] Resolved to: /Users/dev/Code/myproject-wt/main/apps/web
+# [DEBUG] Project root: /Users/dev/Code/myproject
+# [DEBUG] Trying to match against services:
+# [DEBUG]   - api: /Users/dev/Code/myproject/apps/api (no match)
+# [DEBUG]   - web: /Users/dev/Code/myproject/apps/web (no match)
+# [DEBUG]   - worker: /Users/dev/Code/myproject/apps/worker (no match)
+# [DEBUG] Current path is not under project root!
+# Error: could not auto-detect service
+
+# Problem: You're in a worktree with different root path
+# The worktree is at /Users/dev/Code/myproject-wt/main
+# But the project root is /Users/dev/Code/myproject
+
+# Solution 1: Use --service flag
+dual --service web port
+# Output: 4102
+
+# Solution 2: cd to the actual service directory
+cd /Users/dev/Code/myproject/apps/web
+dual port
+# Output: 4102
+
+# Step 2: Verify service paths are correct
+dual service list --paths
+# Output:
+# Services in dual.config.yml:
+#   api     /Users/dev/Code/myproject/apps/api      .env
+#   web     /Users/dev/Code/myproject/apps/web      .vercel/.env.development.local
+#   worker  /Users/dev/Code/myproject/apps/worker   .env.local
+```
+
+### Workflow 5: Troubleshooting Context Detection
+
+Diagnose context detection issues.
+
+```bash
+# Scenario: Wrong context detected
+dual --debug context
+# Output:
+# [DEBUG] Detecting context...
+# [DEBUG] Method 1: Checking git branch...
+# [DEBUG] Git command: git branch --show-current
+# [DEBUG] Git error: not a git repository
+# [DEBUG] Method 2: Checking .dual-context file...
+# [DEBUG] Reading .dual-context from current directory
+# [DEBUG] File not found
+# [DEBUG] Method 3: Using fallback 'default'
+# Context: default
+# Base Port: 4000
+
+# Problem: Not in a git repo and no .dual-context file
+
+# Solution 1: Initialize git
+git init
+git checkout -b main
+
+# Solution 2: Create .dual-context file
+echo "main" > .dual-context
+dual context
+# Output: Context: main
+
+# Scenario: Context exists but not in registry
+dual pnpm dev
+# Output:
+# Error: context "feature-x" not found in registry
+# Hint: Run 'dual context create feature-x' to create this context
+
+# Debug to confirm
+dual --debug context
+# Output:
+# [DEBUG] Context detected: feature-x (from git branch)
+# [DEBUG] Loading registry...
+# [DEBUG] Registry projects: [/Users/dev/Code/myproject]
+# [DEBUG] Contexts for this project: [main staging]
+# Error: context "feature-x" not found
+
+# Solution: Create the context
+dual context create feature-x --base-port 4200
+```
+
+### Workflow 6: Troubleshooting Environment Issues
+
+Diagnose environment variable problems.
+
+```bash
+# Scenario: Environment variable not applied
+cd apps/api
+dual pnpm dev
+# App connects to wrong database
+
+# Step 1: Check environment configuration
+dual --debug env show --service api
+# Output:
+# [DEBUG] Loading base environment from apps/api/.env
+# [DEBUG] Base file not found: apps/api/.env
+# [DEBUG] Skipping base environment
+# [DEBUG] Loading overrides for context 'main', service 'api'
+# [DEBUG] Found 3 overrides for service 'api':
+# [DEBUG]   DATABASE_URL=mysql://localhost/api_main
+# [DEBUG]   API_TIMEOUT=30s
+# [DEBUG]   MAX_CONNECTIONS=100
+# Base:      apps/api/.env (file not found!)
+# Overrides: 3 vars
+
+# Problem: Base env file doesn't exist!
+
+# Step 2: Check configuration
+dual service list
+# Output:
+# api     apps/api      .env
+
+# Solution: Create the base env file or fix the path
+echo "NODE_ENV=development" > apps/api/.env
+
+# Step 3: Validate environment
+dual env check
+# Output:
+# ✓ Base environment file exists: apps/api/.env (1 var)
+# ✓ Context detected: main
+# ✓ Context has 3 environment override(s) for service 'api'
+# ✓ Environment configuration is valid
+
+# Scenario: Override not taking effect
+dual env set DATABASE_URL "mysql://localhost/new_db"
+dual env show --values
+# DATABASE_URL doesn't show up?
+
+# Debug it
+dual --debug env show
+# Output:
+# [DEBUG] Context: main
+# [DEBUG] Loading overrides for context 'main'
+# [DEBUG] Registry contains 0 overrides for context 'main'
+# [DEBUG] Previous set command may have failed
+
+# Problem: Override wasn't saved
+# Solution: Check registry file permissions
+ls -la ~/.dual/registry.json
+# -r--r--r--  1 dev  staff  1234 Jan 15 10:00 registry.json
+# Read-only! Can't write
+
+# Fix permissions
+chmod 644 ~/.dual/registry.json
+
+# Try again
+dual env set DATABASE_URL "mysql://localhost/new_db"
+# Output: Set DATABASE_URL=mysql://localhost/new_db for context 'main' (global)
+```
+
+### Workflow 7: Common Error Messages
+
+Quick reference for common errors and solutions.
+
+#### "failed to load config: no dual.config.yml found"
+
+```bash
+# Error
+dual port
+# Error: failed to load config: no dual.config.yml found in current directory or any parent directory
+# Hint: Run 'dual init' to create a configuration file
+
+# Solution
+dual init
+dual service add web --path . --env-file .env.local
+```
+
+#### "context not found in registry"
+
+```bash
+# Error
+dual pnpm dev
+# Error: context "feature-x" not found in registry
+# Hint: Run 'dual context create' to create this context
+
+# Solution
+dual context create feature-x --base-port 4200
+```
+
+#### "could not auto-detect service"
+
+```bash
+# Error
+dual port
+# Error: could not auto-detect service from current directory
+# Available services: [api web worker]
+# Hint: Run this command from within a service directory or use --service flag
+
+# Solution 1: Use --service flag
+dual --service api port
+
+# Solution 2: cd to service directory
+cd apps/api
+dual port
+```
+
+#### "base port already in use"
+
+```bash
+# Error
+dual context create new-feature --base-port 4100
+# Error: base port 4100 is already assigned to context 'main'
+# Hint: Use a different base port or run 'dual context list' to see existing assignments
+
+# Solution: Use different port or delete old context
+dual context create new-feature --base-port 4200
+```
+
+### Workflow 8: Debug Environment Variable
+
+Use debug mode to trace environment variable resolution.
+
+```bash
+# Set DUAL_DEBUG environment variable for persistent debugging
+export DUAL_DEBUG=1
+
+# Now all dual commands show debug output
+dual port api
+# [DEBUG] output appears automatically
+
+# Unset to disable
+unset DUAL_DEBUG
+```
+
+### Workflow 9: Finding Processes Using Ports
+
+Find and manage processes using specific ports.
+
+```bash
+# macOS/Linux: Find process using port
+lsof -i :4101
+
+# Alternative: Use netstat
+netstat -an | grep 4101
+
+# Kill process by PID
+kill -9 <PID>
+
+# Kill all node processes (use with caution!)
+pkill -9 node
+
+# Find all dual-managed ports in use
+for port in $(dual ports --json | jq -r '.ports[]'); do
+  echo "Port $port:"
+  lsof -i :$port
+done
+```
+
+### Cross-Reference
+
+For complete command syntax and options, see:
+- [USAGE.md Debug Options](USAGE.md#debug--verbose-options)
+- [USAGE.md Error Messages](USAGE.md#error-messages)
+
+---
+
 ## Team Collaboration
 
 ### Scenario
@@ -675,6 +1418,236 @@ dual context create feature-name  # Auto-assigns port
 ---
 
 ## Advanced Scenarios
+
+### Context & Service Management
+
+#### Listing and Cleaning Up Contexts
+
+```bash
+# View all contexts for current project
+dual context list
+# Output:
+# Contexts for /Users/dev/Code/myproject:
+# NAME          BASE PORT  CREATED     CURRENT
+# main          4100       2024-01-15  (current)
+# feature-auth  4200       2024-01-16
+# feature-old   4300       2024-01-10
+# bugfix-123    4400       2024-01-12
+#
+# Total: 4 contexts
+
+# View with port assignments
+dual context list --ports
+# Output:
+# NAME          BASE PORT  CREATED     PORTS                              CURRENT
+# main          4100       2024-01-15  api:4101, web:4102, worker:4103   (current)
+# feature-auth  4200       2024-01-16  api:4201, web:4202, worker:4203
+# feature-old   4300       2024-01-10  api:4301, web:4302, worker:4303
+# bugfix-123    4400       2024-01-12  api:4401, web:4402, worker:4403
+
+# Clean up old contexts
+dual context delete feature-old
+# Output:
+# About to delete context: feature-old
+#   Project: /Users/dev/Code/myproject
+#   Base Port: 4300
+#   Environment Overrides: 0
+#
+# Are you sure you want to delete this context? (y/N): y
+# [dual] Deleted context "feature-old"
+
+# Delete multiple contexts
+dual context delete bugfix-123 --force
+dual context delete temp-test --force
+```
+
+#### Managing Services
+
+```bash
+# List all configured services
+dual service list
+# Output:
+# Services in dual.config.yml:
+#   api     apps/api      .env
+#   web     apps/web      .vercel/.env.development.local
+#   worker  apps/worker   .env.local
+#
+# Total: 3 services
+
+# View with current port assignments
+dual service list --ports
+# Output:
+# Services (context: main, base: 4100):
+#   api     apps/api      Port: 4101
+#   web     apps/web      Port: 4102
+#   worker  apps/worker   Port: 4103
+
+# Remove a service (with confirmation)
+dual service remove worker
+# Output:
+# Warning: Removing "worker" will change port assignments:
+#   api: 4101 → 4101 (stays at index 0)
+#   web: 4102 → 4102 (stays at index 1)
+#
+# Continue? (y/N): y
+# [dual] Service "worker" removed from config
+
+# Add it back
+dual service add worker --path apps/worker --env-file .env.local
+# Output:
+# [dual] Added service "worker"
+#   Path: apps/worker
+#   Env File: .env.local
+```
+
+#### Port Assignment Changes
+
+Understanding how service removal affects ports:
+
+```bash
+# Initial setup: 4 services
+dual service list --ports
+# Output:
+# Services (context: main, base: 4100):
+#   api       apps/api       Port: 4101  (index 0)
+#   frontend  apps/frontend  Port: 4102  (index 1)
+#   web       apps/web       Port: 4103  (index 2)
+#   worker    apps/worker    Port: 4104  (index 3)
+
+# Remove 'frontend' service
+dual service remove frontend --force
+
+# Check new port assignments
+dual service list --ports
+# Output:
+# Services (context: main, base: 4100):
+#   api     apps/api     Port: 4101  (index 0) - unchanged
+#   web     apps/web     Port: 4102  (index 1) - CHANGED from 4103!
+#   worker  apps/worker  Port: 4103  (index 2) - CHANGED from 4104!
+
+# Important: Services are always sorted alphabetically
+# Removing a service shifts all services that come after it alphabetically
+```
+
+### Port Conflict Detection & Resolution
+
+#### Detecting Duplicate Base Ports
+
+```bash
+# List all contexts with ports to find duplicates
+dual context list --ports --all
+# Output:
+# Project: /Users/dev/Code/myproject
+# NAME          BASE PORT  PORTS
+# main          4100       api:4101, web:4102, worker:4103
+# feature-old   4100       api:4101, web:4102, worker:4103  ← Duplicate!
+# feature-new   4200       api:4201, web:4202, worker:4203
+#
+# Project: /Users/dev/Code/otherproject
+# NAME          BASE PORT  PORTS
+# main          4100       app:4101  ← Also using 4100!
+
+# Solution 1: Delete duplicate context
+dual context delete feature-old --force
+
+# Solution 2: Create context with auto-assigned port
+dual context create feature-newer
+# [dual] Auto-assigned base port: 4300
+
+# Solution 3: Check all projects for conflicts
+dual context list --all --json | jq -r '.[] | .contexts[] | "\(.name): \(.basePort)"' | sort -k2
+```
+
+#### Smart Port Assignment Strategy
+
+```bash
+# Use port ranges by project/environment
+# Development (4000-4999)
+dual context create main --base-port 4100
+dual context create feature-1 --base-port 4200
+dual context create feature-2 --base-port 4300
+
+# Staging (5000-5999)
+dual context create staging --base-port 5100
+
+# QA (6000-6999)
+dual context create qa --base-port 6100
+
+# Document your port allocation
+cat > PORTS.md << 'EOF'
+# Port Allocation
+
+## Development (4000-4999)
+- main: 4100-4199
+- feature-1: 4200-4299
+- feature-2: 4300-4399
+
+## Staging (5000-5999)
+- staging: 5100-5199
+
+## QA (6000-6999)
+- qa: 6100-6199
+
+## Services per context
+With 3 services (api, web, worker), each context uses:
+- Base port + 1 (api)
+- Base port + 2 (web)
+- Base port + 3 (worker)
+
+Total: 3 ports per context
+EOF
+```
+
+#### Finding Port Conflicts Across System
+
+```bash
+# Check if any dual ports are in use
+for context in $(dual context list --json | jq -r '.contexts[].name'); do
+  echo "Context: $context"
+  dual --context $context ports --json | jq -r '.ports | to_entries[] | "\(.key): \(.value)"' | while read line; do
+    service=$(echo $line | cut -d: -f1)
+    port=$(echo $line | cut -d: -f2 | xargs)
+    if lsof -i :$port >/dev/null 2>&1; then
+      echo "  ⚠️  $service (port $port) is IN USE"
+      lsof -i :$port | tail -n +2
+    else
+      echo "  ✓  $service (port $port) is available"
+    fi
+  done
+  echo
+done
+```
+
+#### Resolving Port Conflicts in Worktrees
+
+```bash
+# Scenario: Two worktrees accidentally sharing the same context
+cd ~/Code/myproject-wt/main
+dual context
+# Context: main (base: 4100)
+
+cd ~/Code/myproject-wt/feature-x
+dual context
+# Context: main (base: 4100)  ← Wrong! Should be feature-x
+
+# The worktree is on feature-x branch but using main context
+git branch --show-current
+# feature-x
+
+# Problem: Context not created for feature-x branch
+# Solution: Create proper context
+dual context create feature-x --base-port 4200
+
+# Now it works correctly
+dual context
+# Context: feature-x (base: 4200)
+
+# Alternative: Use .dual-context file for explicit control
+echo "feature-x-worktree" > .dual-context
+dual context create feature-x-worktree --base-port 4200
+dual context
+# Context: feature-x-worktree (base: 4200)
+```
 
 ### Custom Context Names
 
@@ -823,7 +1796,9 @@ dual context create qa --base-port 6100
 
 ---
 
-## Troubleshooting Examples
+## Quick Troubleshooting Reference
+
+For detailed troubleshooting workflows and debug techniques, see the [Debug & Troubleshooting](#debug--troubleshooting) section above.
 
 ### Port Already in Use
 
@@ -831,26 +1806,18 @@ dual context create qa --base-port 6100
 # Check what's using the port
 lsof -i :4101
 
-# Option 1: Kill the process
+# Kill the process
 kill -9 <PID>
 
-# Option 2: Use different base port
+# Or use different base port
 dual context create main --base-port 4500
-
-# Option 3: Create new context for this branch
-dual context create feature-new --base-port 4200
 ```
 
 ### Wrong Port Detected
 
 ```bash
-# Check current context
-dual context
-
-# Check current service
-cd apps/web
-dual port --verbose
-# [dual] Context: main | Service: web | Port: 4101
+# Check current context and port
+dual --verbose port
 
 # Override service detection
 dual --service api pnpm dev
@@ -859,11 +1826,7 @@ dual --service api pnpm dev
 ### Lost Context
 
 ```bash
-# Context deleted from registry?
-dual context
-# Error: context "main" not found in registry
-
-# Recreate it
+# Recreate context
 dual context create main --base-port 4100
 ```
 

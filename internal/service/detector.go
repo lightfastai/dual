@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/lightfastai/dual/internal/config"
+	"github.com/lightfastai/dual/internal/logger"
 	"github.com/lightfastai/dual/internal/worktree"
 )
 
@@ -44,6 +45,7 @@ func (d *Detector) DetectService(cfg *config.Config, projectRoot string) (string
 	if err != nil {
 		return "", fmt.Errorf("failed to get current directory: %w", err)
 	}
+	logger.Debug("Current path: %s", cwd)
 
 	// Resolve symlinks in both cwd and project root
 	resolvedCwd, err := d.evalSymlinks(cwd)
@@ -59,6 +61,7 @@ func (d *Detector) DetectService(cfg *config.Config, projectRoot string) (string
 	}
 
 	// Convert all service paths to absolute and resolve symlinks
+	logger.Debug("Checking service paths...")
 	servicePaths := make(map[string]string)
 	for name, service := range cfg.Services {
 		// Join with project root to make absolute
@@ -73,6 +76,7 @@ func (d *Detector) DetectService(cfg *config.Config, projectRoot string) (string
 
 		// Clean the path to normalize it
 		servicePaths[name] = filepath.Clean(resolvedPath)
+		logger.Debug("  %s: %s", name, servicePaths[name])
 	}
 
 	// Check if CWD is within any service path
@@ -87,6 +91,7 @@ func (d *Detector) DetectService(cfg *config.Config, projectRoot string) (string
 			if matchLen > longestMatchLen {
 				longestMatch = name
 				longestMatchLen = matchLen
+				logger.Debug("  %s: Match!", name)
 			}
 		}
 	}
@@ -95,6 +100,7 @@ func (d *Detector) DetectService(cfg *config.Config, projectRoot string) (string
 		return "", ErrServiceNotDetected
 	}
 
+	logger.Success("Service: %s", longestMatch)
 	return longestMatch, nil
 }
 

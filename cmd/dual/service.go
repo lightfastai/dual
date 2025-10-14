@@ -1,17 +1,30 @@
 package main
 
 import (
+	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/lightfastai/dual/internal/config"
+	"github.com/lightfastai/dual/internal/context"
+	"github.com/lightfastai/dual/internal/registry"
+	"github.com/lightfastai/dual/internal/service"
 	"github.com/spf13/cobra"
 )
 
 var (
 	servicePath    string
 	serviceEnvFile string
+	// list command flags
+	listJSON     bool
+	listPorts    bool
+	listAbsPaths bool
+	// remove command flags
+	forceRemove bool
 )
 
 var serviceCmd = &cobra.Command{
@@ -31,12 +44,49 @@ Optionally, you can specify an env file for the service using --env-file.`,
 	RunE: runServiceAdd,
 }
 
+var serviceListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List all services in the configuration",
+	Long: `List all services defined in the dual configuration.
+
+By default, shows service name, path, and env file in a human-readable format.
+Use --json for machine-readable output.
+Use --ports to show port assignments for the current context.
+Use --paths to show absolute paths instead of relative paths.`,
+	Args: cobra.NoArgs,
+	RunE: runServiceList,
+}
+
+var serviceRemoveCmd = &cobra.Command{
+	Use:   "remove <name>",
+	Short: "Remove a service from the configuration",
+	Long: `Remove a service from the dual configuration.
+
+WARNING: Removing a service changes port assignments for services that come after it
+alphabetically, as ports are calculated based on alphabetical order.
+
+The command will show which services will have their ports changed and prompt for
+confirmation unless --force is specified.
+
+This command does NOT delete any files or directories.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runServiceRemove,
+}
+
 func init() {
 	serviceAddCmd.Flags().StringVar(&servicePath, "path", "", "Relative path to the service directory (required)")
 	serviceAddCmd.Flags().StringVar(&serviceEnvFile, "env-file", "", "Relative path to the env file for the service (optional)")
 	_ = serviceAddCmd.MarkFlagRequired("path")
 
+	serviceListCmd.Flags().BoolVar(&listJSON, "json", false, "Output in JSON format")
+	serviceListCmd.Flags().BoolVar(&listPorts, "ports", false, "Show port assignments for current context")
+	serviceListCmd.Flags().BoolVar(&listAbsPaths, "paths", false, "Show absolute paths instead of relative paths")
+
+	serviceRemoveCmd.Flags().BoolVarP(&forceRemove, "force", "f", false, "Skip confirmation prompt")
+
 	serviceCmd.AddCommand(serviceAddCmd)
+	serviceCmd.AddCommand(serviceListCmd)
+	serviceCmd.AddCommand(serviceRemoveCmd)
 	rootCmd.AddCommand(serviceCmd)
 }
 
@@ -115,4 +165,291 @@ func runServiceAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+func runServiceList(cmd *cobra.Command, args []string) error {
+	// Load config
+	cfg, projectRoot, err := config.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load configuration: %w\nHint: Run 'dual init' to create a configuration file", err)
+	}
+
+	// If no services, print message and exit
+	if len(cfg.Services) == 0 {
+		if listJSON {
+			fmt.Println(`{"services":[]}`)
+		} else {
+			fmt.Println("No services configured")
+			fmt.Println("Run 'dual service add <name> --path <path>' to add a service")
+		}
+		return nil
+	}
+
+	// Get sorted service names for consistent output
+	serviceNames := make([]string, 0, len(cfg.Services))
+	for name := range cfg.Services {
+		serviceNames = append(serviceNames, name)
+	}
+	sort.Strings(serviceNames)
+
+	// Determine if we need to calculate ports
+	var ports map[string]int
+	var contextName string
+	var projectPath string
+	if listPorts {
+		// Detect context
+		detector := context.NewDetector()
+		contextName, err = detector.DetectContext()
+		if err != nil {
+			return fmt.Errorf("failed to detect context: %w", err)
+		}
+
+		// Get project identifier for registry
+		projectPath, err = config.GetProjectIdentifier(projectRoot)
+		if err != nil {
+			return fmt.Errorf("failed to get project identifier: %w", err)
+		}
+
+		// Load registry
+		reg, err := registry.LoadRegistry()
+		if err != nil {
+			return fmt.Errorf("failed to load registry: %w", err)
+		}
+
+		// Calculate all ports
+		ports, err = service.CalculateAllPorts(cfg, reg, projectPath, contextName)
+		if err != nil {
+			return fmt.Errorf("failed to calculate ports: %w\nHint: Run 'dual context create %s' to create the context", err, contextName)
+		}
+	}
+
+	// Output in requested format
+	if listJSON {
+		return outputListJSON(cfg, projectRoot, serviceNames, ports)
+	}
+
+	return outputListHuman(cfg, projectRoot, serviceNames, contextName, ports)
+}
+
+func outputListJSON(cfg *config.Config, projectRoot string, serviceNames []string, ports map[string]int) error {
+	type serviceOutput struct {
+		Name         string `json:"name"`
+		Path         string `json:"path"`
+		EnvFile      string `json:"envFile,omitempty"`
+		AbsolutePath string `json:"absolutePath,omitempty"`
+		Port         int    `json:"port,omitempty"`
+	}
+
+	output := struct {
+		Services []serviceOutput `json:"services"`
+	}{
+		Services: make([]serviceOutput, 0, len(serviceNames)),
+	}
+
+	for _, name := range serviceNames {
+		svc := cfg.Services[name]
+		svcOut := serviceOutput{
+			Name:    name,
+			Path:    svc.Path,
+			EnvFile: svc.EnvFile,
+		}
+
+		if listAbsPaths {
+			svcOut.AbsolutePath = filepath.Join(projectRoot, svc.Path)
+		}
+
+		if ports != nil {
+			svcOut.Port = ports[name]
+		}
+
+		output.Services = append(output.Services, svcOut)
+	}
+
+	encoder := json.NewEncoder(os.Stdout)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(output); err != nil {
+		return fmt.Errorf("failed to encode JSON: %w", err)
+	}
+
+	return nil
+}
+
+func outputListHuman(cfg *config.Config, projectRoot string, serviceNames []string, contextName string, ports map[string]int) error {
+	if ports != nil {
+		// Get the base port from the first service's port
+		basePort := 0
+		if len(serviceNames) > 0 {
+			basePort = ports[serviceNames[0]] - 1
+		}
+		fmt.Printf("Services (context: %s, base: %d):\n", contextName, basePort)
+	} else {
+		fmt.Println("Services in dual.config.yml:")
+	}
+
+	// Calculate column widths for alignment
+	maxNameLen := 0
+	maxPathLen := 0
+	for _, name := range serviceNames {
+		if len(name) > maxNameLen {
+			maxNameLen = len(name)
+		}
+		svc := cfg.Services[name]
+		pathStr := svc.Path
+		if listAbsPaths {
+			pathStr = filepath.Join(projectRoot, svc.Path)
+		}
+		if len(pathStr) > maxPathLen {
+			maxPathLen = len(pathStr)
+		}
+	}
+
+	// Print services
+	for _, name := range serviceNames {
+		svc := cfg.Services[name]
+		pathStr := svc.Path
+		if listAbsPaths {
+			pathStr = filepath.Join(projectRoot, svc.Path)
+		}
+
+		// Format: name (padded) path (padded) [envfile or port]
+		fmt.Printf("  %-*s  %-*s", maxNameLen, name, maxPathLen, pathStr)
+
+		if ports != nil {
+			fmt.Printf("  Port: %d", ports[name])
+		} else if svc.EnvFile != "" {
+			fmt.Printf("  %s", svc.EnvFile)
+		}
+		fmt.Println()
+	}
+
+	fmt.Printf("\nTotal: %d service", len(serviceNames))
+	if len(serviceNames) != 1 {
+		fmt.Print("s")
+	}
+	fmt.Println()
+
+	return nil
+}
+
+func runServiceRemove(cmd *cobra.Command, args []string) error {
+	serviceName := args[0]
+
+	// Load config
+	cfg, projectRoot, err := config.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load configuration: %w\nHint: Run 'dual init' to create a configuration file", err)
+	}
+
+	// Check if service exists
+	if _, exists := cfg.Services[serviceName]; !exists {
+		return fmt.Errorf("service %q not found in configuration", serviceName)
+	}
+
+	// Calculate impact of removing this service
+	affectedServices := calculateRemovalImpact(cfg, serviceName)
+
+	// Show warning if removing will affect other services
+	if len(affectedServices) > 0 && !forceRemove {
+		fmt.Printf("Warning: Removing %q will change port assignments:\n", serviceName)
+		for _, impact := range affectedServices {
+			fmt.Printf("  %s: %d → %d (will move to index %d)\n",
+				impact.ServiceName, impact.OldPort, impact.NewPort, impact.NewIndex)
+		}
+		fmt.Println()
+
+		// Prompt for confirmation
+		if !promptConfirm("Continue?") {
+			fmt.Println("Cancelled")
+			return nil
+		}
+	}
+
+	// Remove service from config
+	delete(cfg.Services, serviceName)
+
+	// Save the config
+	configPath := filepath.Join(projectRoot, config.ConfigFileName)
+	if err := config.SaveConfig(cfg, configPath); err != nil {
+		return fmt.Errorf("failed to save configuration: %w", err)
+	}
+
+	fmt.Printf("[dual] Service %q removed from config\n", serviceName)
+
+	return nil
+}
+
+type portImpact struct {
+	ServiceName string
+	OldIndex    int
+	NewIndex    int
+	OldPort     int
+	NewPort     int
+}
+
+func calculateRemovalImpact(cfg *config.Config, serviceToRemove string) []portImpact {
+	// Get sorted service names (current state)
+	currentServices := make([]string, 0, len(cfg.Services))
+	for name := range cfg.Services {
+		currentServices = append(currentServices, name)
+	}
+	sort.Strings(currentServices)
+
+	// Get sorted service names after removal (future state)
+	futureServices := make([]string, 0, len(cfg.Services)-1)
+	for _, name := range currentServices {
+		if name != serviceToRemove {
+			futureServices = append(futureServices, name)
+		}
+	}
+
+	// Find services that will have different indices
+	var impacts []portImpact
+	for _, name := range futureServices {
+		oldIndex := -1
+		newIndex := -1
+
+		// Find old index
+		for i, svcName := range currentServices {
+			if svcName == name {
+				oldIndex = i
+				break
+			}
+		}
+
+		// Find new index
+		for i, svcName := range futureServices {
+			if svcName == name {
+				newIndex = i
+				break
+			}
+		}
+
+		// If indices differ, this service is affected
+		if oldIndex != newIndex {
+			// Use a dummy base port for demonstration (4200)
+			// In reality, this varies by context, but the delta is what matters
+			const demoBasePort = 4200
+			impacts = append(impacts, portImpact{
+				ServiceName: name,
+				OldIndex:    oldIndex,
+				NewIndex:    newIndex,
+				OldPort:     demoBasePort + oldIndex + 1,
+				NewPort:     demoBasePort + newIndex + 1,
+			})
+		}
+	}
+
+	return impacts
+}
+
+func promptConfirm(message string) bool {
+	fmt.Printf("%s (y/N): ", message)
+	reader := bufio.NewReader(os.Stdin)
+	response, err := reader.ReadString('\n')
+	if err != nil {
+		return false
+	}
+
+	response = strings.TrimSpace(strings.ToLower(response))
+	return response == "y" || response == "yes"
 }

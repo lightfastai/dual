@@ -49,6 +49,7 @@ The entry point and primary interface. Handles:
 - Detecting passthrough vs. subcommand mode
 - Orchestrating detection and execution pipeline
 - Injecting PORT environment variable
+- Managing layered environment merging
 
 ### 2. Config Manager (`internal/config/`)
 
@@ -57,14 +58,17 @@ Manages `dual.config.yml` file:
 - Parses and validates YAML structure
 - Provides service definitions to other components
 - Validates service paths and env files
+- Manages base environment file configuration
 
 ### 3. Registry Manager (`internal/registry/`)
 
 Manages `~/.dual/registry.json`:
 - Stores context-to-basePort mappings globally
-- Thread-safe read/write operations
-- Atomic file updates to prevent corruption
+- Thread-safe read/write operations with `sync.RWMutex`
+- File locking with `gofrs/flock` for atomic operations
 - Auto-assigns next available ports
+- Stores environment overrides (global and service-specific)
+- Supports migration from old to new override format
 
 ### 4. Context Detector (`internal/context/`)
 
@@ -86,6 +90,33 @@ Computes final port number:
 - Formula: `port = basePort + serviceIndex + 1`
 - Retrieves basePort from registry
 - Determines serviceIndex from config
+
+### 7. Logger Manager (`internal/logger/`)
+
+Provides structured logging with multiple verbosity levels:
+- **Verbose mode** (`--verbose`): Shows detailed operational info
+- **Debug mode** (`--debug`): Shows internal state and decisions
+- **Environment variable**: `DUAL_DEBUG=1` enables debug mode
+- All output goes to stderr to keep stdout clean for command output
+- Functions: `Info()`, `Success()`, `Error()`, `Verbose()`, `Debug()`
+
+### 8. Port Conflict Detector (`internal/ports/`)
+
+Detects and prevents port conflicts:
+- **Duplicate base ports**: Finds contexts sharing the same base port
+- **Port range overlaps**: Detects overlapping service port ranges
+- **In-use detection**: Checks if ports are currently bound using `net.Listen`
+- **Process identification**: Cross-platform process lookup (lsof, netstat)
+- Provides smart base port suggestions avoiding conflicts
+
+### 9. Environment Manager (`internal/env/`)
+
+Manages layered environment variable system:
+- **Loader**: Parses dotenv files with full format support
+- **Merger**: Merges base, overrides, and runtime layers
+- **LayeredEnv**: Tracks all three environment layers
+- Supports export format, quoted values, comments
+- Provides statistics and inspection capabilities
 
 ---
 
@@ -156,6 +187,7 @@ dual/
 │   ├── init.go                  # dual init
 │   ├── service.go               # dual service add
 │   ├── context.go               # dual context, dual context create
+│   ├── env.go                   # dual env (set, unset, show, export, check, diff)
 │   ├── port.go                  # dual port
 │   ├── ports.go                 # dual ports
 │   ├── open.go                  # dual open
@@ -167,7 +199,7 @@ dual/
 │   │   └── config_test.go       # Unit tests
 │   │
 │   ├── registry/                # Registry management
-│   │   ├── registry.go          # Registry CRUD operations
+│   │   ├── registry.go          # Registry CRUD operations (with file locking)
 │   │   ├── registry_test.go     # Unit tests
 │   │   └── example_test.go      # Example usage
 │   │
@@ -175,11 +207,24 @@ dual/
 │   │   ├── detector.go          # Detection logic
 │   │   └── detector_test.go     # Unit tests
 │   │
-│   └── service/                 # Service detection and port calculation
-│       ├── detector.go          # Service detection
-│       ├── detector_test.go     # Unit tests
-│       ├── calculator.go        # Port calculation
-│       └── calculator_test.go   # Unit tests
+│   ├── service/                 # Service detection and port calculation
+│   │   ├── detector.go          # Service detection
+│   │   ├── detector_test.go     # Unit tests
+│   │   ├── calculator.go        # Port calculation
+│   │   └── calculator_test.go   # Unit tests
+│   │
+│   ├── logger/                  # Logging system
+│   │   ├── logger.go            # Structured logging with verbosity levels
+│   │   └── logger_test.go       # Unit tests
+│   │
+│   ├── ports/                   # Port conflict detection
+│   │   ├── conflict.go          # Conflict detection and process lookup
+│   │   └── conflict_test.go     # Unit tests
+│   │
+│   └── env/                     # Environment management
+│       ├── loader.go            # Environment file parsing
+│       ├── merger.go            # Layered environment merging
+│       └── loader_test.go       # Unit tests
 │
 ├── dual.config.yml              # Example configuration
 ├── go.mod                       # Go module definition
@@ -476,6 +521,8 @@ func DetectService(cfg *config.Config, projectRoot string) (string, error) {
 
 ### Registry Structure
 
+The registry now supports layered environment overrides with backward compatibility:
+
 ```json
 {
   "projects": {
@@ -484,7 +531,22 @@ func DetectService(cfg *config.Config, projectRoot string) (string, error) {
         "<context-name>": {
           "basePort": 4100,
           "path": "/optional/worktree/path",
-          "created": "2025-10-14T10:00:00Z"
+          "created": "2025-10-14T10:00:00Z",
+          "envOverrides": {},
+          "envOverridesV2": {
+            "global": {
+              "DATABASE_URL": "postgres://localhost/dev",
+              "DEBUG": "true"
+            },
+            "services": {
+              "api": {
+                "DATABASE_URL": "postgres://localhost/api_db"
+              },
+              "worker": {
+                "QUEUE_URL": "redis://localhost:6379"
+              }
+            }
+          }
         }
       }
     }
@@ -492,28 +554,77 @@ func DetectService(cfg *config.Config, projectRoot string) (string, error) {
 }
 ```
 
-### Thread Safety
+**Environment Override Layers**:
+- `envOverrides`: Deprecated flat map, auto-migrated on first access
+- `envOverridesV2.global`: Global overrides applied to all services
+- `envOverridesV2.services[serviceName]`: Service-specific overrides
 
-Registry operations are thread-safe using `sync.RWMutex`:
+### File Locking
+
+Registry operations use file locking (`gofrs/flock`) to prevent concurrent access issues:
 
 ```go
 type Registry struct {
     Projects map[string]Project `json:"projects"`
     mu       sync.RWMutex       `json:"-"`
+    flock    *flock.Flock       `json:"-"`  // File lock
 }
 
+func LoadRegistry() (*Registry, error) {
+    // Create file lock
+    lockPath := "~/.dual/registry.json.lock"
+    fileLock := flock.New(lockPath)
+
+    // Try to acquire lock with timeout (5 seconds)
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+
+    locked, err := fileLock.TryLockContext(ctx, 100*time.Millisecond)
+    if !locked {
+        return nil, ErrLockTimeout
+    }
+
+    // Load registry data...
+    // Lock is held until Close() is called
+
+    return registry, nil
+}
+
+func (r *Registry) Close() error {
+    if r.flock != nil {
+        return r.flock.Unlock()
+    }
+    return nil
+}
+```
+
+**Lock behavior**:
+- Lock acquired in `LoadRegistry()` and held until `Close()`
+- Timeout: 5 seconds (prevents deadlocks)
+- Lock file: `~/.dual/registry.json.lock`
+- Must call `Close()` to release lock (use `defer reg.Close()`)
+
+### Thread Safety
+
+Registry operations are thread-safe using both file locking and in-memory mutex:
+
+```go
 func (r *Registry) GetContext(projectPath, contextName string) (*Context, error) {
-    r.mu.RLock()
+    r.mu.RLock()  // In-memory read lock
     defer r.mu.RUnlock()
     // ... read operations
 }
 
 func (r *Registry) SetContext(projectPath, contextName string, basePort int) error {
-    r.mu.Lock()
+    r.mu.Lock()  // In-memory write lock
     defer r.mu.Unlock()
     // ... write operations
 }
 ```
+
+**Two-level locking strategy**:
+1. **File lock** (`flock`): Prevents concurrent access across processes
+2. **In-memory mutex** (`sync.RWMutex`): Prevents concurrent access within a process
 
 ### Atomic Writes
 
@@ -521,12 +632,15 @@ Registry updates use atomic write pattern:
 
 ```go
 func (r *Registry) SaveRegistry() error {
+    r.mu.Lock()  // Acquire in-memory lock
+    defer r.mu.Unlock()
+
     // 1. Marshal to JSON
     data, _ := json.MarshalIndent(r, "", "  ")
 
     // 2. Write to temporary file
     tempFile := registryPath + ".tmp"
-    os.WriteFile(tempFile, data, 0644)
+    os.WriteFile(tempFile, data, 0600)
 
     // 3. Atomic rename (POSIX guarantees atomicity)
     os.Rename(tempFile, registryPath)
@@ -537,8 +651,9 @@ func (r *Registry) SaveRegistry() error {
 
 This prevents corruption if:
 - Process crashes during write
-- Multiple dual instances run concurrently
+- Multiple dual instances run concurrently (prevented by file lock)
 - Disk fills up during write
+- SIGKILL during save operation
 
 ### Auto-Port Assignment
 
@@ -677,29 +792,71 @@ dual pnpm dev
 
 # Terminal 2 (at the same time)
 dual context create feature-x
+
+# Terminal 3 (at the same time)
+dual env set DATABASE_URL "postgres://localhost/dev"
 ```
 
-Registry uses `sync.RWMutex`:
+Registry uses **two-level locking** for maximum safety:
+
+**Level 1: File Lock** (`gofrs/flock`)
+- Prevents concurrent access across processes
+- Lock acquired in `LoadRegistry()`, released in `Close()`
+- Timeout: 5 seconds (returns `ErrLockTimeout` if exceeded)
+- Lock file: `~/.dual/registry.json.lock`
+
+**Level 2: In-Memory Mutex** (`sync.RWMutex`)
+- Prevents concurrent access within a process
 - Multiple readers can access simultaneously
 - Writers get exclusive access
-- Prevents race conditions
+- Prevents race conditions in goroutines
+
+```go
+// Example usage pattern
+reg, err := registry.LoadRegistry()  // Acquires file lock
+if err != nil {
+    return err
+}
+defer reg.Close()  // MUST release lock
+
+// Operations are safe - both file lock and in-memory mutex protect data
+ctx, err := reg.GetContext(projectPath, contextName)
+// ...
+err = reg.SaveRegistry()
+```
 
 ### File I/O
 
 All file operations use atomic patterns:
 
 1. **Config writes**: Temp file + atomic rename
-2. **Registry writes**: Temp file + atomic rename
+2. **Registry writes**: Temp file + atomic rename + file locking
 3. **Env file writes** (`dual sync`): Temp file + atomic rename
+
+### Lock Timeout Behavior
+
+If a lock cannot be acquired within 5 seconds:
+
+```go
+Error: timeout waiting for registry lock (waited 5s)
+Hint: Another dual command may be running. Wait for it to complete or check for hung processes.
+```
+
+This prevents:
+- Deadlocks from crashed processes
+- Indefinite waiting when something goes wrong
+- Silent failures that corrupt data
 
 ### Concurrent Safety Guarantees
 
-- ✅ Multiple dual commands reading registry
-- ✅ Multiple dual commands executing wrapped commands
-- ✅ One dual writing registry while others read
-- ✅ Crashed writes don't corrupt registry
-- ⚠️ Race condition: Two dual commands creating same context simultaneously
-  - Last write wins (acceptable for this use case)
+- ✅ Multiple dual commands reading registry (blocked by file lock, executed serially)
+- ✅ Multiple dual commands executing wrapped commands (parallel, no conflicts)
+- ✅ One dual writing registry while others wait (file lock serializes access)
+- ✅ Crashed writes don't corrupt registry (atomic writes + temp files)
+- ✅ Lock timeout prevents deadlocks (5 second timeout)
+- ✅ Two dual commands creating same context simultaneously (file lock prevents race)
+- ✅ Registry operations across processes are serialized (file lock)
+- ⚠️ Lock timeout may cause "busy" errors under extreme load (acceptable tradeoff)
 
 ---
 
@@ -736,6 +893,414 @@ Hint: Run 'dual context create' to create this context
 2. **Unrecoverable errors**: Show error, exit 1
 3. **Wrapped command errors**: Preserve exit code
 4. **Corrupt registry**: Warn, create new empty registry
+
+---
+
+## Environment Layering System
+
+`dual` implements a three-layer environment variable system that allows for flexible per-context and per-service configuration.
+
+### Layer Priority
+
+Environment variables are merged in the following order (highest priority last):
+
+1. **Base Layer** (lowest priority)
+   - Source: Environment file specified in `dual.config.yml` (`env.baseFile`)
+   - Scope: All services in all contexts
+   - Format: Standard dotenv file (`.env`, `.env.base`, etc.)
+
+2. **Override Layer** (medium priority)
+   - Source: Registry (`~/.dual/registry.json`)
+   - Scope: Context-specific (global or per-service)
+   - Managed via: `dual env set/unset` commands
+
+3. **Runtime Layer** (highest priority)
+   - Source: Calculated at execution time
+   - Scope: Current execution
+   - Variables: `PORT` (always injected)
+
+### Override Layer Structure
+
+The override layer supports two scopes:
+
+**Global Overrides** - Apply to all services in a context:
+```bash
+dual env set DATABASE_URL "postgres://localhost/dev"
+```
+
+**Service-Specific Overrides** - Apply only to named service:
+```bash
+dual env set --service api DATABASE_URL "postgres://localhost/api_db"
+```
+
+Registry representation:
+```json
+{
+  "envOverridesV2": {
+    "global": {
+      "DATABASE_URL": "postgres://localhost/dev",
+      "DEBUG": "true"
+    },
+    "services": {
+      "api": {
+        "DATABASE_URL": "postgres://localhost/api_db"
+      },
+      "worker": {
+        "QUEUE_URL": "redis://localhost:6379"
+      }
+    }
+  }
+}
+```
+
+### Merge Algorithm
+
+```go
+func (e *LayeredEnv) Merge() map[string]string {
+    result := make(map[string]string)
+
+    // Layer 1: Base environment
+    for k, v := range e.Base {
+        result[k] = v
+    }
+
+    // Layer 2: Context overrides
+    for k, v := range e.Overrides {
+        result[k] = v  // Overwrites base
+    }
+
+    // Layer 3: Runtime values
+    for k, v := range e.Runtime {
+        result[k] = v  // Overwrites everything
+    }
+
+    return result
+}
+```
+
+### Service-Specific Override Resolution
+
+When resolving overrides for a specific service:
+
+```go
+func (c *Context) GetEnvOverrides(serviceName string) map[string]string {
+    result := make(map[string]string)
+
+    // Start with global overrides
+    for k, v := range c.EnvOverridesV2.Global {
+        result[k] = v
+    }
+
+    // Apply service-specific overrides (if service specified)
+    if serviceName != "" {
+        if serviceOverrides, exists := c.EnvOverridesV2.Services[serviceName]; exists {
+            for k, v := range serviceOverrides {
+                result[k] = v  // Service overrides win over global
+            }
+        }
+    }
+
+    return result
+}
+```
+
+**Resolution priority**: `global` → `services[serviceName]`
+
+### Migration from Old Format
+
+The system automatically migrates from the old flat override format:
+
+```go
+// Old format (deprecated)
+"envOverrides": {
+  "DATABASE_URL": "postgres://localhost/dev",
+  "DEBUG": "true"
+}
+
+// Migrated to new format on first access
+"envOverridesV2": {
+  "global": {
+    "DATABASE_URL": "postgres://localhost/dev",
+    "DEBUG": "true"
+  },
+  "services": {}
+}
+```
+
+Migration is transparent and happens automatically when accessing overrides.
+
+### Environment File Loading
+
+The loader supports standard dotenv format:
+
+```bash
+# Comments are supported
+DATABASE_URL=postgres://localhost/dev
+DEBUG=true
+
+# Quoted values
+SECRET_KEY="my secret value with spaces"
+API_KEY='single-quoted-value'
+
+# Export prefix (optional)
+export NODE_ENV=development
+
+# Empty lines are ignored
+
+PORT=4000  # Will be overridden by runtime layer
+```
+
+### Usage Example
+
+```bash
+# Set base environment file in config
+echo "env:
+  baseFile: .env.base" >> dual.config.yml
+
+# Create base environment file
+echo "DATABASE_URL=postgres://localhost/base
+DEBUG=false
+LOG_LEVEL=info" > .env.base
+
+# Create context-specific override
+dual context create feature-auth 4200
+dual env set DEBUG true  # Global override
+
+# Create service-specific override
+dual env set --service api DATABASE_URL "postgres://localhost/auth_db"
+
+# View merged environment
+dual env show --values
+
+# Run command with layered environment
+dual pnpm dev
+```
+
+**Effective environment for `api` service**:
+- `DATABASE_URL`: `postgres://localhost/auth_db` (service-specific override)
+- `DEBUG`: `true` (global override)
+- `LOG_LEVEL`: `info` (base)
+- `PORT`: `4201` (runtime)
+
+---
+
+## Port Conflict Detection System
+
+`dual` includes comprehensive port conflict detection to prevent and diagnose port assignment issues.
+
+### Conflict Types
+
+#### 1. Duplicate Base Ports
+
+Multiple contexts assigned the same base port:
+
+```bash
+$ dual ports
+
+Duplicate base port detected:
+  Port 4100:
+    - main (Project: /Users/dev/myproject)
+    - staging (Project: /Users/dev/myproject)
+
+Hint: Use 'dual context create' with --port to reassign
+```
+
+**Detection**:
+```go
+func FindDuplicateBasePorts(reg *registry.Registry) []BasePortConflict {
+    basePortMap := make(map[int][]ContextInfo)
+
+    // Collect all base ports
+    for projectPath, project := range reg.Projects {
+        for contextName, ctx := range project.Contexts {
+            basePortMap[ctx.BasePort] = append(basePortMap[ctx.BasePort], ...)
+        }
+    }
+
+    // Find conflicts (base ports used by more than one context)
+    var conflicts []BasePortConflict
+    for basePort, contexts := range basePortMap {
+        if len(contexts) > 1 {
+            conflicts = append(conflicts, ...)
+        }
+    }
+
+    return conflicts
+}
+```
+
+#### 2. Port Range Overlaps
+
+Service port ranges from different contexts overlap:
+
+```bash
+$ dual ports
+
+Port range overlap detected:
+  Context 'main' (4100): ports 4101-4103
+  Context 'feature-x' (4102): ports 4103-4105
+  → Overlap at port 4103
+
+Hint: Contexts should be at least 100 ports apart
+```
+
+**Detection**:
+```go
+func CheckPortRangeOverlap(reg *registry.Registry, cfg *config.Config, projectPath string) []PortRangeOverlap {
+    numServices := len(cfg.Services)
+
+    for each pair of contexts:
+        startPort1 := ctx1.BasePort + 1
+        endPort1 := ctx1.BasePort + numServices
+        startPort2 := ctx2.BasePort + 1
+        endPort2 := ctx2.BasePort + numServices
+
+        // Check for overlap
+        if startPort1 <= endPort2 && startPort2 <= endPort1 {
+            // Ranges overlap!
+            overlaps = append(overlaps, ...)
+        }
+}
+```
+
+#### 3. Port In Use
+
+A calculated port is already bound by another process:
+
+```bash
+$ dual pnpm dev
+
+Warning: Port 4101 is already in use
+  Process: node (PID: 12345)
+  User: dev
+  Command: node server.js
+
+Hint: Stop the process or use a different context
+```
+
+**Detection** (cross-platform):
+```go
+func IsPortInUse(port int) bool {
+    // Try to bind to the port
+    listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+    if err != nil {
+        return true  // Port is in use
+    }
+    listener.Close()
+    return false  // Port is available
+}
+```
+
+### Process Identification
+
+When a port conflict is detected, `dual` attempts to identify the process using the port:
+
+**macOS/Linux** (using `lsof`):
+```bash
+lsof -i :4101 -P -n
+```
+
+**Windows** (using `netstat`):
+```bash
+netstat -ano -p tcp
+```
+
+Parsed output:
+```go
+type ProcessInfo struct {
+    PID     int
+    Name    string
+    Command string
+    User    string
+}
+```
+
+### Smart Port Assignment
+
+When creating a context, `dual` suggests the next conflict-free base port:
+
+```go
+func FindNextAvailableBasePort(reg *registry.Registry, cfg *config.Config, projectPath string) int {
+    usedPorts := collectAllBasePorts(reg)
+    numServices := len(cfg.Services)
+
+    // Start from DefaultBasePort (4100)
+    nextPort := DefaultBasePort
+    for {
+        // Check if base port is available
+        if !usedPorts[nextPort] {
+            // Check if entire port range is clear
+            if !hasRangeOverlap(nextPort, numServices, reg) {
+                return nextPort
+            }
+        }
+        nextPort += PortIncrement  // Try next 100-port block
+    }
+}
+```
+
+This ensures:
+- No duplicate base ports
+- No port range overlaps
+- Adequate spacing between contexts
+
+### Conflict Prevention
+
+When creating a context with a custom port:
+
+```bash
+$ dual context create feature-x 4150
+```
+
+`dual` validates:
+1. Base port not already used
+2. Port range doesn't overlap with existing contexts
+3. All ports in range are available (optional warning)
+
+```go
+func CheckContextPortConflict(reg *registry.Registry, cfg *config.Config, projectPath string, basePort int) error {
+    // Check for duplicate base port
+    for _, project := range reg.Projects {
+        for contextName, context := range project.Contexts {
+            if context.BasePort == basePort {
+                return fmt.Errorf("base port %d already assigned to context '%s'", basePort, contextName)
+            }
+        }
+    }
+
+    // Check for port range overlaps
+    numServices := len(cfg.Services)
+    startNew := basePort + 1
+    endNew := basePort + numServices
+
+    for _, context := range existingContexts {
+        startExisting := context.BasePort + 1
+        endExisting := context.BasePort + numServices
+
+        if startNew <= endExisting && startExisting <= endNew {
+            return fmt.Errorf("port range [%d-%d] overlaps with context '%s'", ...)
+        }
+    }
+
+    return nil
+}
+```
+
+### Usage Commands
+
+```bash
+# View all port assignments and detect conflicts
+dual ports
+
+# Check if a specific port is in use
+dual port 4101
+
+# Create context with automatic port assignment (conflict-free)
+dual context create feature-x
+
+# Create context with specific port (validated)
+dual context create feature-x 4150
+```
 
 ---
 
