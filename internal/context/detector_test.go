@@ -35,7 +35,7 @@ func mockGetwd(dir string, err error) func() (string, error) {
 
 // TestDetectContext_GitBranch tests that git branch is detected with highest priority
 func TestDetectContext_GitBranch(t *testing.T) {
-	tests := []struct {
+	tests := []struct { //nolint:govet // Test struct optimization not critical
 		name           string
 		gitOutput      string
 		gitError       error
@@ -83,7 +83,7 @@ func TestDetectContext_GitBranch(t *testing.T) {
 
 // TestDetectContext_DualContextFile tests .dual-context file detection
 func TestDetectContext_DualContextFile(t *testing.T) {
-	tests := []struct {
+	tests := []struct { //nolint:govet // Test struct optimization not critical
 		name           string
 		workingDir     string
 		files          map[string]string
@@ -150,7 +150,7 @@ func TestDetectContext_DualContextFile(t *testing.T) {
 
 // TestDetectContext_DefaultFallback tests fallback to "default"
 func TestDetectContext_DefaultFallback(t *testing.T) {
-	tests := []struct {
+	tests := []struct { //nolint:govet // Test struct optimization not critical
 		name           string
 		workingDir     string
 		gitError       error
@@ -309,7 +309,7 @@ func TestDetectContext_ConvenienceFunction(t *testing.T) {
 
 // TestFindDualContextFile_WalkUpTree tests the directory tree walking logic
 func TestFindDualContextFile_WalkUpTree(t *testing.T) {
-	tests := []struct {
+	tests := []struct { //nolint:govet // Test struct optimization not critical
 		name        string
 		workingDir  string
 		files       map[string]string
@@ -389,11 +389,11 @@ func TestFindDualContextFile_WalkUpTree(t *testing.T) {
 
 // TestDetectGitBranch tests the git branch detection logic specifically
 func TestDetectGitBranch(t *testing.T) {
-	tests := []struct {
-		name          string
-		gitOutput     string
-		gitError      error
-		shouldSucceed bool
+	tests := []struct { //nolint:govet // Test struct optimization not critical
+		name           string
+		gitOutput      string
+		gitError       error
+		shouldSucceed  bool
 		expectedBranch string
 	}{
 		{
@@ -455,14 +455,14 @@ func TestDetectContext_Integration(t *testing.T) {
 
 	// Create subdirectories
 	subDir := filepath.Join(tmpDir, "sub", "nested")
-	err := os.MkdirAll(subDir, 0755)
+	err := os.MkdirAll(subDir, 0o755)
 	if err != nil {
 		t.Fatalf("failed to create test directories: %v", err)
 	}
 
 	// Create a .dual-context file in the temp directory
 	contextFile := filepath.Join(tmpDir, ".dual-context")
-	err = os.WriteFile(contextFile, []byte("test-context"), 0644)
+	err = os.WriteFile(contextFile, []byte("test-context"), 0o644)
 	if err != nil {
 		t.Fatalf("failed to write test file: %v", err)
 	}

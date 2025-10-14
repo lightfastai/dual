@@ -11,12 +11,12 @@ import (
 
 // TestHelper provides utility functions for integration tests
 type TestHelper struct {
-	t          *testing.T
-	TempDir    string
-	ProjectDir string
-	DualBin    string
+	t            *testing.T
+	TempDir      string
+	ProjectDir   string
+	DualBin      string
 	OriginalHome string
-	TestHome   string
+	TestHome     string
 }
 
 // NewTestHelper creates a new test helper with a temp directory and builds the dual binary
@@ -28,7 +28,7 @@ func NewTestHelper(t *testing.T) *TestHelper {
 
 	// Create a project directory within the temp directory
 	projectDir := filepath.Join(tempDir, "project")
-	if err := os.MkdirAll(projectDir, 0755); err != nil {
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
 		t.Fatalf("failed to create project directory: %v", err)
 	}
 
@@ -40,7 +40,7 @@ func NewTestHelper(t *testing.T) *TestHelper {
 
 	// Create a test home directory for registry isolation
 	testHome := filepath.Join(tempDir, "home")
-	if err := os.MkdirAll(testHome, 0755); err != nil {
+	if err := os.MkdirAll(testHome, 0o755); err != nil {
 		t.Fatalf("failed to create test home directory: %v", err)
 	}
 
@@ -48,12 +48,12 @@ func NewTestHelper(t *testing.T) *TestHelper {
 	originalHome := os.Getenv("HOME")
 
 	helper := &TestHelper{
-		t:          t,
-		TempDir:    tempDir,
-		ProjectDir: projectDir,
-		DualBin:    dualBin,
+		t:            t,
+		TempDir:      tempDir,
+		ProjectDir:   projectDir,
+		DualBin:      dualBin,
 		OriginalHome: originalHome,
-		TestHome:   testHome,
+		TestHome:     testHome,
 	}
 
 	// Set HOME to test home for registry isolation
@@ -180,11 +180,11 @@ func (h *TestHelper) WriteFile(relativePath, content string) {
 	fullPath := filepath.Join(h.ProjectDir, relativePath)
 	dir := filepath.Dir(fullPath)
 
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		h.t.Fatalf("failed to create directory %s: %v", dir, err)
 	}
 
-	if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(fullPath, []byte(content), 0o644); err != nil {
 		h.t.Fatalf("failed to write file %s: %v", fullPath, err)
 	}
 }
@@ -216,7 +216,7 @@ func (h *TestHelper) CreateDirectory(relativePath string) {
 	h.t.Helper()
 
 	fullPath := filepath.Join(h.ProjectDir, relativePath)
-	if err := os.MkdirAll(fullPath, 0755); err != nil {
+	if err := os.MkdirAll(fullPath, 0o755); err != nil {
 		h.t.Fatalf("failed to create directory %s: %v", fullPath, err)
 	}
 }

@@ -65,6 +65,7 @@ func LoadRegistry() (*Registry, error) {
 	}
 
 	// Read the file
+	// #nosec G304 - registryPath is from trusted GetRegistryPath() function
 	data, err := os.ReadFile(registryPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read registry: %w", err)
@@ -103,7 +104,7 @@ func (r *Registry) SaveRegistry() error {
 
 	// Ensure directory exists
 	registryDir := filepath.Dir(registryPath)
-	if err := os.MkdirAll(registryDir, 0755); err != nil {
+	if err := os.MkdirAll(registryDir, 0o750); err != nil {
 		return fmt.Errorf("failed to create registry directory: %w", err)
 	}
 
@@ -115,13 +116,13 @@ func (r *Registry) SaveRegistry() error {
 
 	// Write to temporary file
 	tempFile := registryPath + ".tmp"
-	if err := os.WriteFile(tempFile, data, 0644); err != nil {
+	if err := os.WriteFile(tempFile, data, 0o600); err != nil {
 		return fmt.Errorf("failed to write temporary registry: %w", err)
 	}
 
 	// Atomic rename
 	if err := os.Rename(tempFile, registryPath); err != nil {
-		os.Remove(tempFile) // Clean up temp file on error
+		_ = os.Remove(tempFile) // Clean up temp file on error
 		return fmt.Errorf("failed to save registry: %w", err)
 	}
 

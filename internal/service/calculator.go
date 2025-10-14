@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 
@@ -29,7 +30,7 @@ func (c *Calculator) CalculatePort(cfg *config.Config, reg *registry.Registry, p
 	// Get the context from the registry
 	ctx, err := reg.GetContext(projectPath, contextName)
 	if err != nil {
-		if err == registry.ErrContextNotFound || err == registry.ErrProjectNotFound {
+		if errors.Is(err, registry.ErrContextNotFound) || errors.Is(err, registry.ErrProjectNotFound) {
 			return 0, ErrContextNotFound
 		}
 		return 0, fmt.Errorf("failed to get context: %w", err)
@@ -87,7 +88,7 @@ func CalculateAllPorts(cfg *config.Config, reg *registry.Registry, projectPath, 
 	// Get the context to ensure it exists
 	ctx, err := reg.GetContext(projectPath, contextName)
 	if err != nil {
-		if err == registry.ErrContextNotFound || err == registry.ErrProjectNotFound {
+		if errors.Is(err, registry.ErrContextNotFound) || errors.Is(err, registry.ErrProjectNotFound) {
 			return nil, ErrContextNotFound
 		}
 		return nil, fmt.Errorf("failed to get context: %w", err)

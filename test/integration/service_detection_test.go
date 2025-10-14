@@ -190,10 +190,6 @@ func TestServiceDetectionMultipleServices(t *testing.T) {
 	for _, service := range services {
 		h.CreateDirectory(service)
 		// Extract service name from path (last component)
-		parts := filepath.SplitList(service)
-		if len(parts) == 0 {
-			parts = []string{service}
-		}
 		serviceName := filepath.Base(service)
 		h.RunDual("service", "add", serviceName, "--path", service)
 	}
@@ -203,13 +199,13 @@ func TestServiceDetectionMultipleServices(t *testing.T) {
 
 	// Test detection from each service directory
 	expectedPorts := map[string]string{
-		"frontend/admin":       "4101", // admin (alphabetically 0)
-		"frontend/mobile":      "4102", // mobile (alphabetically 1)
-		"frontend/web":         "4103", // web (alphabetically 2)
-		"backend/api":          "4104", // api (alphabetically 3)
-		"backend/auth":         "4105", // auth (alphabetically 4)
-		"backend/scheduler":    "4106", // scheduler (alphabetically 5)
-		"backend/worker":       "4107", // worker (alphabetically 6)
+		"frontend/admin":    "4101", // admin (alphabetically 0)
+		"frontend/mobile":   "4102", // mobile (alphabetically 1)
+		"frontend/web":      "4103", // web (alphabetically 2)
+		"backend/api":       "4104", // api (alphabetically 3)
+		"backend/auth":      "4105", // auth (alphabetically 4)
+		"backend/scheduler": "4106", // scheduler (alphabetically 5)
+		"backend/worker":    "4107", // worker (alphabetically 6)
 	}
 
 	// Wait, services are sorted alphabetically by NAME not path

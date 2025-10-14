@@ -17,8 +17,8 @@ const (
 
 // Config represents the dual.config.yml structure
 type Config struct {
-	Version  int                `yaml:"version"`
 	Services map[string]Service `yaml:"services"`
+	Version  int                `yaml:"version"`
 }
 
 // Service represents a single service configuration
@@ -166,19 +166,19 @@ func SaveConfig(config *Config, path string) error {
 
 	// Ensure directory exists
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
 	// Write to temporary file
 	tempFile := path + ".tmp"
-	if err := os.WriteFile(tempFile, data, 0644); err != nil {
+	if err := os.WriteFile(tempFile, data, 0o600); err != nil {
 		return fmt.Errorf("failed to write temporary config: %w", err)
 	}
 
 	// Atomic rename
 	if err := os.Rename(tempFile, path); err != nil {
-		os.Remove(tempFile) // Clean up temp file on error
+		_ = os.Remove(tempFile) // Clean up temp file on error
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 

@@ -97,7 +97,7 @@ echo "PORT=$PORT"
 
 	// Create the script in the feature worktree too (git worktree has separate working directory)
 	featureScriptPath := filepath.Join(worktreePath, "print-port.sh")
-	if err := os.WriteFile(featureScriptPath, []byte(scriptContent), 0755); err != nil {
+	if err := os.WriteFile(featureScriptPath, []byte(scriptContent), 0o755); err != nil {
 		t.Fatalf("failed to write script in feature worktree: %v", err)
 	}
 

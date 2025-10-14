@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -76,7 +77,7 @@ func runContextInfo(cmd *cobra.Command, args []string) error {
 	// Get context info
 	ctx, err := reg.GetContext(projectRoot, contextName)
 	if err != nil {
-		if err == registry.ErrContextNotFound || err == registry.ErrProjectNotFound {
+		if errors.Is(err, registry.ErrContextNotFound) || errors.Is(err, registry.ErrProjectNotFound) {
 			return fmt.Errorf("context %q not found in registry\nHint: Run 'dual context create' to create this context", contextName)
 		}
 		return fmt.Errorf("failed to get context: %w", err)

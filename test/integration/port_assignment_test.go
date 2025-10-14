@@ -350,7 +350,7 @@ func TestMultiProjectPortIsolation(t *testing.T) {
 
 	// Create first project
 	project1 := filepath.Join(h.TempDir, "project1")
-	if err := os.MkdirAll(project1, 0755); err != nil {
+	if err := os.MkdirAll(project1, 0o755); err != nil {
 		t.Fatalf("failed to create project1: %v", err)
 	}
 
@@ -361,7 +361,7 @@ func TestMultiProjectPortIsolation(t *testing.T) {
 
 	// Create service directory for project1
 	project1WebDir := filepath.Join(project1, "apps/web")
-	if err := os.MkdirAll(project1WebDir, 0755); err != nil {
+	if err := os.MkdirAll(project1WebDir, 0o755); err != nil {
 		t.Fatalf("failed to create project1 web directory: %v", err)
 	}
 	h.RunDualInDir(project1, "service", "add", "web", "--path", "apps/web")
@@ -369,7 +369,7 @@ func TestMultiProjectPortIsolation(t *testing.T) {
 
 	// Create second project
 	project2 := filepath.Join(h.TempDir, "project2")
-	if err := os.MkdirAll(project2, 0755); err != nil {
+	if err := os.MkdirAll(project2, 0o755); err != nil {
 		t.Fatalf("failed to create project2: %v", err)
 	}
 
@@ -380,7 +380,7 @@ func TestMultiProjectPortIsolation(t *testing.T) {
 
 	// Create service directory for project2
 	project2ApiDir := filepath.Join(project2, "apps/api")
-	if err := os.MkdirAll(project2ApiDir, 0755); err != nil {
+	if err := os.MkdirAll(project2ApiDir, 0o755); err != nil {
 		t.Fatalf("failed to create project2 api directory: %v", err)
 	}
 	h.RunDualInDir(project2, "service", "add", "api", "--path", "apps/api")
@@ -431,7 +431,7 @@ func createGitBranchInDir(t *testing.T, dir, branch string) {
 	cmd.Dir = dir
 	if _, err := cmd.Output(); err != nil {
 		readmePath := filepath.Join(dir, "README.md")
-		if err := os.WriteFile(readmePath, []byte("# Test"), 0644); err != nil {
+		if err := os.WriteFile(readmePath, []byte("# Test"), 0o644); err != nil {
 			t.Fatalf("failed to write README: %v", err)
 		}
 

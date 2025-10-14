@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -60,7 +61,7 @@ func runSync(cmd *cobra.Command, args []string) error {
 	// Calculate ports for all services
 	ports, err := service.CalculateAllPorts(cfg, reg, projectRoot, contextName)
 	if err != nil {
-		if err == service.ErrContextNotFound {
+		if errors.Is(err, service.ErrContextNotFound) {
 			return fmt.Errorf("context %q not found in registry\nHint: Run 'dual context create' to create this context", contextName)
 		}
 		return fmt.Errorf("failed to calculate ports: %w", err)
@@ -102,7 +103,7 @@ func runSync(cmd *cobra.Command, args []string) error {
 func updateEnvFile(filePath string, port int) error {
 	// Ensure directory exists
 	dir := filepath.Dir(filePath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
@@ -112,11 +113,12 @@ func updateEnvFile(filePath string, port int) error {
 
 	if _, err := os.Stat(filePath); err == nil {
 		// File exists, read it
+		// #nosec G304 - File path is controlled by config
 		file, err := os.Open(filePath)
 		if err != nil {
 			return fmt.Errorf("failed to open file: %w", err)
 		}
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		scanner := bufio.NewScanner(file)
 		for scanner.Scan() {
@@ -146,6 +148,7 @@ func updateEnvFile(filePath string, port int) error {
 
 	// Write to temporary file
 	tempFile := filePath + ".tmp"
+	// #nosec G304 - File path is controlled by config
 	file, err := os.Create(tempFile)
 	if err != nil {
 		return fmt.Errorf("failed to create temporary file: %w", err)
@@ -154,26 +157,26 @@ func updateEnvFile(filePath string, port int) error {
 	writer := bufio.NewWriter(file)
 	for _, line := range lines {
 		if _, err := writer.WriteString(line + "\n"); err != nil {
-			file.Close()
-			os.Remove(tempFile)
+			_ = file.Close()
+			_ = os.Remove(tempFile)
 			return fmt.Errorf("failed to write to temporary file: %w", err)
 		}
 	}
 
 	if err := writer.Flush(); err != nil {
-		file.Close()
-		os.Remove(tempFile)
+		_ = file.Close()
+		_ = os.Remove(tempFile)
 		return fmt.Errorf("failed to flush temporary file: %w", err)
 	}
 
 	if err := file.Close(); err != nil {
-		os.Remove(tempFile)
+		_ = os.Remove(tempFile)
 		return fmt.Errorf("failed to close temporary file: %w", err)
 	}
 
 	// Atomic rename
 	if err := os.Rename(tempFile, filePath); err != nil {
-		os.Remove(tempFile)
+		_ = os.Remove(tempFile)
 		return fmt.Errorf("failed to save file: %w", err)
 	}
 
