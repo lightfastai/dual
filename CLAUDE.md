@@ -33,7 +33,7 @@ The main entry point (cmd/dual/main.go:160-234) implements custom argument parsi
 - Auto-recovers from corruption (returns empty registry)
 
 **Context Detection** (`internal/context/`)
-- Priority: `.dual-context` file → git branch → "default"
+- Priority: git branch → `.dual-context` file → "default"
 - Simple, no external dependencies beyond git command
 
 **Service Detection** (`internal/service/detector.go`)

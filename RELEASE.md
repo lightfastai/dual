@@ -28,7 +28,7 @@ git push origin v1.0.0
 ### 2. GitHub Actions Automatically:
 
 1. Checks out the code
-2. Sets up Go 1.25.2
+2. Sets up Go 1.23
 3. Runs tests via `go test ./...`
 4. Runs GoReleaser which:
    - Builds binaries for:
@@ -45,7 +45,7 @@ git push origin v1.0.0
 
 - GitHub Release is created at: `https://github.com/lightfastai/dual/releases`
 - Homebrew formula is updated automatically
-- Users can install via: `brew install lightfastai/tap/dual`
+- Users can install via: `brew tap lightfastai/tap && brew install dual`
 
 ## Version Information
 
@@ -78,10 +78,10 @@ dual --version
 brew tap lightfastai/tap
 
 # Install dual
-brew install lightfastai/tap/dual
+brew install dual
 
 # Or in one command
-brew install lightfastai/tap/dual
+brew tap lightfastai/tap && brew install dual
 ```
 
 ### Manual Installation
@@ -219,7 +219,7 @@ This workflow:
 - Triggers on any tag starting with `v`
 - Runs on `ubuntu-latest`
 - Uses `goreleaser/goreleaser-action@v6`
-- Requires Go 1.25.2
+- Requires Go 1.23
 
 ## Configuration Files
 

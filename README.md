@@ -75,16 +75,19 @@ dual pnpm dev
 ### Homebrew (macOS/Linux)
 
 ```bash
-brew install lightfastai/tap/dual
+brew tap lightfastai/tap
+brew install dual
 ```
 
 ### Direct Download
 
 ```bash
-# Download latest binary
-curl -sSL https://github.com/lightfastai/dual/releases/latest/download/dual-$(uname -s)-$(uname -m) \
-  -o /usr/local/bin/dual
-chmod +x /usr/local/bin/dual
+# Download and install latest release
+curl -sSL "https://github.com/lightfastai/dual/releases/latest/download/dual_$(uname -s)_$(uname -m).tar.gz" | \
+  sudo tar -xzf - -C /usr/local/bin dual
+
+# Verify installation
+dual --version
 ```
 
 ### Build from Source
@@ -277,7 +280,7 @@ port = basePort + serviceIndex + 1
 **Example:**
 
 ```yaml
-# Config defines service order
+# Services are sorted alphabetically (not by config order!)
 services:
   web: { path: apps/web }
   api: { path: apps/api }
@@ -286,13 +289,13 @@ services:
 
 ```
 Context "main" (basePort: 4100):
-  web    → 4101  (4100 + 0 + 1)
-  api    → 4102  (4100 + 1 + 1)
-  worker → 4103  (4100 + 2 + 1)
+  api    → 4101  (4100 + 0 + 1)  # 'api' is alphabetically first
+  web    → 4102  (4100 + 1 + 1)  # 'web' is alphabetically second
+  worker → 4103  (4100 + 2 + 1)  # 'worker' is alphabetically third
 
 Context "feature-auth" (basePort: 4200):
-  web    → 4201  (4200 + 0 + 1)
-  api    → 4202  (4200 + 1 + 1)
+  api    → 4201  (4200 + 0 + 1)
+  web    → 4202  (4200 + 1 + 1)
   worker → 4203  (4200 + 2 + 1)
 ```
 
@@ -300,12 +303,12 @@ Context "feature-auth" (basePort: 4200):
 
 Priority order:
 
-1. **Git branch name** (primary)
+1. **Git branch name** (primary, auto-detected)
    ```bash
    git branch --show-current  # → "feature-auth"
    ```
 
-2. **`.dual-context` file** (override)
+2. **`.dual-context` file** (fallback if not in git repo)
    ```bash
    echo "custom-context" > .dual-context
    ```

@@ -121,11 +121,18 @@ release:
 
     ### Homebrew (macOS/Linux)
     ```bash
-    brew install lightfastai/tap/dual
+    brew tap lightfastai/tap
+    brew install dual
+    ```
+
+    ### Direct Download
+    ```bash
+    curl -sSL "https://github.com/lightfastai/dual/releases/latest/download/dual_$(uname -s)_$(uname -m).tar.gz" | \
+      sudo tar -xzf - -C /usr/local/bin dual
     ```
 
     ### Manual Installation
-    Download the appropriate binary for your platform from the assets below and add it to your PATH.
+    Download the appropriate archive for your platform from the assets below, extract it, and add the binary to your PATH.
 
     ## Checksums
     All binaries include checksums in `checksums.txt` for verification.

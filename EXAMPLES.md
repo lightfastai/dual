@@ -87,7 +87,7 @@ my-monorepo/
 cd ~/Code/my-monorepo
 dual init
 
-# Add services in order (order matters for port calculation!)
+# Add services (will be sorted alphabetically for port calculation)
 dual service add web --path apps/web --env-file apps/web/.env.local
 dual service add api --path apps/api --env-file apps/api/.env
 dual service add worker --path apps/worker --env-file apps/worker/.env
@@ -136,11 +136,12 @@ dual pnpm dev
 
 ```
 Formula: port = basePort + serviceIndex + 1
+Services are sorted alphabetically: api, web, worker
 
 Context "main" (basePort: 4100):
-  web    (index 0) → 4101
-  api    (index 1) → 4102
-  worker (index 2) → 4103
+  api    (index 0) → 4101  # alphabetically first
+  web    (index 1) → 4102  # alphabetically second
+  worker (index 2) → 4103  # alphabetically third
 ```
 
 ### Checking Ports
@@ -150,13 +151,13 @@ Context "main" (basePort: 4100):
 dual ports
 # Output:
 # Context: main (base: 4100)
-# api:    4102
-# web:    4101
+# api:    4101
+# web:    4102
 # worker: 4103
 
 # Get specific port
 dual port api
-# Output: 4102
+# Output: 4101
 ```
 
 ---
@@ -451,9 +452,8 @@ jobs:
 
       - name: Install dual
         run: |
-          curl -sSL https://github.com/lightfastai/dual/releases/latest/download/dual-linux-amd64 \
-            -o /usr/local/bin/dual
-          chmod +x /usr/local/bin/dual
+          curl -sSL "https://github.com/lightfastai/dual/releases/latest/download/dual_Linux_x86_64.tar.gz" | \
+            sudo tar -xzf - -C /usr/local/bin dual
 
       - name: Install dependencies
         run: npm ci
@@ -495,9 +495,8 @@ jobs:
       - name: Sync ports locally
         run: |
           # Install dual temporarily
-          curl -sSL https://github.com/lightfastai/dual/releases/latest/download/dual-linux-amd64 \
-            -o /tmp/dual
-          chmod +x /tmp/dual
+          curl -sSL "https://github.com/lightfastai/dual/releases/latest/download/dual_Linux_x86_64.tar.gz" | \
+            tar -xzf - -C /tmp dual
 
           # Create CI context and sync
           /tmp/dual context create ci --base-port 9000
@@ -515,8 +514,7 @@ test:
   image: node:18
   before_script:
     - apt-get update && apt-get install -y curl
-    - curl -sSL https://github.com/lightfastai/dual/releases/latest/download/dual-linux-amd64 -o /usr/local/bin/dual
-    - chmod +x /usr/local/bin/dual
+    - curl -sSL "https://github.com/lightfastai/dual/releases/latest/download/dual_Linux_x86_64.tar.gz" | tar -xzf - -C /usr/local/bin dual
     - npm ci
   script:
     - dual context create ci --base-port 9000
@@ -530,9 +528,8 @@ test:
 FROM node:18
 
 # Install dual
-RUN curl -sSL https://github.com/lightfastai/dual/releases/latest/download/dual-linux-amd64 \
-    -o /usr/local/bin/dual && \
-    chmod +x /usr/local/bin/dual
+RUN curl -sSL "https://github.com/lightfastai/dual/releases/latest/download/dual_Linux_x86_64.tar.gz" | \
+    tar -xzf - -C /usr/local/bin dual
 
 WORKDIR /app
 COPY package*.json ./
@@ -639,7 +636,8 @@ We use `dual` to manage ports across different branches and services.
 
 1. Install dual:
    ```bash
-   brew install lightfastai/tap/dual
+   brew tap lightfastai/tap
+   brew install dual
    ```
 
 2. Run setup script:

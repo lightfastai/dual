@@ -94,9 +94,9 @@ dual --service web npm start
 
 When you run `dual <command>`:
 
-1. Detects current context (git branch or `.dual-context` file)
+1. Detects current context (git branch, falls back to `.dual-context` file, then "default")
 2. Detects current service (from working directory or `--service` flag)
-3. Calculates the port: `basePort + serviceIndex + 1`
+3. Calculates the port: `basePort + serviceIndex + 1` (services sorted alphabetically)
 4. Executes the command with `PORT` in the environment
 5. Prints context info to stderr: `[dual] Context: main | Service: web | Port: 4101`
 
@@ -213,7 +213,7 @@ dual service add docs --path docs
 
 - Paths must be relative to project root (where `dual.config.yml` is located)
 - Paths must exist before adding the service
-- Service order matters for port calculation (first service = serviceIndex 0)
+- Services are sorted **alphabetically** for port calculation (not by config order!)
 - Service names must be unique
 
 ---
@@ -615,18 +615,22 @@ npm test  # Will read PORT from env files
 ### First-Time Setup
 
 ```bash
-# 1. Initialize project
+# 1. Install dual
+brew tap lightfastai/tap
+brew install dual
+
+# 2. Initialize project
 cd ~/Code/myproject
 dual init
 
-# 2. Add services
+# 3. Add services
 dual service add web --path apps/web --env-file .vercel/.env.development.local
 dual service add api --path apps/api --env-file .env
 
-# 3. Create main context
+# 4. Create main context
 dual context create main --base-port 4100
 
-# 4. Run your app
+# 5. Run your app
 cd apps/web
 dual pnpm dev
 ```
