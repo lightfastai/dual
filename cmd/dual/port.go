@@ -49,21 +49,22 @@ func runPort(cmd *cobra.Command, args []string) error {
 
 	// Determine service name
 	var serviceName string
-	if serviceOverride != "" {
+	switch {
+	case serviceOverride != "":
 		// Use --service flag override (global persistent flag)
 		serviceName = serviceOverride
 		// Validate service exists in config
 		if _, exists := cfg.Services[serviceName]; !exists {
 			return fmt.Errorf("service %q not found in config\nAvailable services: %v", serviceName, getServiceNames(cfg))
 		}
-	} else if len(args) > 0 {
+	case len(args) > 0:
 		// Service specified explicitly as argument
 		serviceName = args[0]
 		// Validate service exists in config
 		if _, exists := cfg.Services[serviceName]; !exists {
 			return fmt.Errorf("service %q not found in config\nAvailable services: %v", serviceName, getServiceNames(cfg))
 		}
-	} else {
+	default:
 		// Auto-detect service
 		serviceName, err = service.DetectService(cfg, projectRoot)
 		if err != nil {

@@ -393,7 +393,7 @@ func runEnvSet(cmd *cobra.Command, args []string) error {
 	defer reg.Close()
 
 	// Check if context exists
-	ctx, err := reg.GetContext(projectIdentifier, contextName)
+	_, err = reg.GetContext(projectIdentifier, contextName)
 	if err != nil {
 		return fmt.Errorf("context %q not found in registry\nHint: Run 'dual context create' to create this context", contextName)
 	}
@@ -434,7 +434,7 @@ func runEnvSet(cmd *cobra.Command, args []string) error {
 	}
 
 	// Show current override count
-	ctx, _ = reg.GetContext(projectIdentifier, contextName)
+	ctx, _ := reg.GetContext(projectIdentifier, contextName)
 	if ctx != nil {
 		globalCount := 0
 		serviceCount := 0
@@ -705,11 +705,17 @@ func runEnvCheck(cmd *cobra.Command, args []string) error {
 
 	if hasIssues {
 		fmt.Println("\n❌ Environment configuration has issues")
-		os.Exit(1)
+		return fmt.Errorf("environment configuration has issues")
 	}
 
 	fmt.Println("\n✓ Environment configuration is valid")
 	return nil
+}
+
+type envDiff struct {
+	changed map[string][2]string
+	added   map[string]string
+	removed map[string]string
 }
 
 func runEnvDiff(cmd *cobra.Command, args []string) error {
@@ -719,55 +725,73 @@ func runEnvDiff(cmd *cobra.Command, args []string) error {
 	// Initialize logger
 	logger.Init(verboseFlag, debugFlag)
 
+	// Load environments for both contexts
+	merged1, merged2, err := loadAndMergeContextEnvs(context1, context2)
+	if err != nil {
+		return err
+	}
+
+	// Calculate differences
+	diff := calculateEnvDiff(merged1, merged2)
+
+	// Display results
+	displayEnvDiff(context1, context2, diff)
+
+	return nil
+}
+
+func loadAndMergeContextEnvs(context1, context2 string) (map[string]string, map[string]string, error) {
 	// Load config
 	cfg, projectRoot, err := config.LoadConfig()
 	if err != nil {
-		return fmt.Errorf("failed to load config: %w\nHint: Run 'dual init' to create a configuration file", err)
+		return nil, nil, fmt.Errorf("failed to load config: %w\nHint: Run 'dual init' to create a configuration file", err)
 	}
 
 	// Get project identifier
 	projectIdentifier, err := config.GetProjectIdentifier(projectRoot)
 	if err != nil {
-		return fmt.Errorf("failed to get project identifier: %w", err)
+		return nil, nil, fmt.Errorf("failed to get project identifier: %w", err)
 	}
 
 	// Load registry
 	reg, err := registry.LoadRegistry()
 	if err != nil {
-		return fmt.Errorf("failed to load registry: %w", err)
+		return nil, nil, fmt.Errorf("failed to load registry: %w", err)
 	}
 	defer reg.Close()
 
 	// Get both contexts
 	ctx1, err := reg.GetContext(projectIdentifier, context1)
 	if err != nil {
-		return fmt.Errorf("context %q not found in registry", context1)
+		return nil, nil, fmt.Errorf("context %q not found in registry", context1)
 	}
 
 	ctx2, err := reg.GetContext(projectIdentifier, context2)
 	if err != nil {
-		return fmt.Errorf("context %q not found in registry", context2)
+		return nil, nil, fmt.Errorf("context %q not found in registry", context2)
 	}
 
 	// Load environments for both contexts
 	env1, err := env.LoadLayeredEnv(projectRoot, cfg, context1, ctx1.EnvOverrides, 0)
 	if err != nil {
-		return fmt.Errorf("failed to load environment for %q: %w", context1, err)
+		return nil, nil, fmt.Errorf("failed to load environment for %q: %w", context1, err)
 	}
 
 	env2, err := env.LoadLayeredEnv(projectRoot, cfg, context2, ctx2.EnvOverrides, 0)
 	if err != nil {
-		return fmt.Errorf("failed to load environment for %q: %w", context2, err)
+		return nil, nil, fmt.Errorf("failed to load environment for %q: %w", context2, err)
 	}
 
 	// Merge environments
-	merged1 := env1.Merge()
-	merged2 := env2.Merge()
+	return env1.Merge(), env2.Merge(), nil
+}
 
-	// Find differences
-	changed := make(map[string][2]string)
-	added := make(map[string]string)
-	removed := make(map[string]string)
+func calculateEnvDiff(merged1, merged2 map[string]string) envDiff {
+	diff := envDiff{
+		changed: make(map[string][2]string),
+		added:   make(map[string]string),
+		removed: make(map[string]string),
+	}
 
 	// Find changed and removed
 	for k, v1 := range merged1 {
@@ -776,10 +800,10 @@ func runEnvDiff(cmd *cobra.Command, args []string) error {
 		}
 		if v2, exists := merged2[k]; exists {
 			if v1 != v2 {
-				changed[k] = [2]string{v1, v2}
+				diff.changed[k] = [2]string{v1, v2}
 			}
 		} else {
-			removed[k] = v1
+			diff.removed[k] = v1
 		}
 	}
 
@@ -789,56 +813,69 @@ func runEnvDiff(cmd *cobra.Command, args []string) error {
 			continue // Skip PORT comparison
 		}
 		if _, exists := merged1[k]; !exists {
-			added[k] = v2
+			diff.added[k] = v2
 		}
 	}
 
-	// Display results
+	return diff
+}
+
+func displayEnvDiff(context1, context2 string, diff envDiff) {
 	fmt.Printf("Comparing environments: %s → %s\n\n", context1, context2)
 
-	if len(changed) > 0 {
-		fmt.Println("Changed:")
-		keys := make([]string, 0, len(changed))
-		for k := range changed {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			vals := changed[k]
-			fmt.Printf("  %s: %s → %s\n", k, vals[0], vals[1])
-		}
-		fmt.Println()
+	if len(diff.changed) > 0 {
+		displayChangedVars(diff.changed)
 	}
 
-	if len(added) > 0 {
-		fmt.Println("Added:")
-		keys := make([]string, 0, len(added))
-		for k := range added {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			fmt.Printf("  %s=%s\n", k, added[k])
-		}
-		fmt.Println()
+	if len(diff.added) > 0 {
+		displayAddedVars(diff.added)
 	}
 
-	if len(removed) > 0 {
-		fmt.Println("Removed:")
-		keys := make([]string, 0, len(removed))
-		for k := range removed {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			fmt.Printf("  %s=%s\n", k, removed[k])
-		}
-		fmt.Println()
+	if len(diff.removed) > 0 {
+		displayRemovedVars(diff.removed)
 	}
 
-	if len(changed) == 0 && len(added) == 0 && len(removed) == 0 {
+	if len(diff.changed) == 0 && len(diff.added) == 0 && len(diff.removed) == 0 {
 		fmt.Println("No differences found")
 	}
+}
 
-	return nil
+func displayChangedVars(changed map[string][2]string) {
+	fmt.Println("Changed:")
+	keys := make([]string, 0, len(changed))
+	for k := range changed {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		vals := changed[k]
+		fmt.Printf("  %s: %s → %s\n", k, vals[0], vals[1])
+	}
+	fmt.Println()
+}
+
+func displayAddedVars(added map[string]string) {
+	fmt.Println("Added:")
+	keys := make([]string, 0, len(added))
+	for k := range added {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		fmt.Printf("  %s=%s\n", k, added[k])
+	}
+	fmt.Println()
+}
+
+func displayRemovedVars(removed map[string]string) {
+	fmt.Println("Removed:")
+	keys := make([]string, 0, len(removed))
+	for k := range removed {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		fmt.Printf("  %s=%s\n", k, removed[k])
+	}
+	fmt.Println()
 }

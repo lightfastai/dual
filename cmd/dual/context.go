@@ -579,7 +579,7 @@ func runContextDelete(cmd *cobra.Command, args []string) error {
 	fmt.Printf("About to delete context: %s\n", contextName)
 	fmt.Printf("  Project: %s\n", projectIdentifier)
 	fmt.Printf("  Base Port: %d\n", ctx.BasePort)
-	if ctx.EnvOverrides != nil && len(ctx.EnvOverrides) > 0 {
+	if len(ctx.EnvOverrides) > 0 {
 		fmt.Printf("  Environment Overrides: %d\n", len(ctx.EnvOverrides))
 	}
 

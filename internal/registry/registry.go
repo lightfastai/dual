@@ -34,10 +34,10 @@ type ContextEnvOverrides struct {
 
 // Context represents a development context (branch, worktree, etc.)
 type Context struct {
-	Created      time.Time         `json:"created"`
-	Path         string            `json:"path,omitempty"`
-	BasePort     int               `json:"basePort"`
-	EnvOverrides map[string]string `json:"envOverrides,omitempty"` // Deprecated: use EnvOverridesV2
+	Created        time.Time            `json:"created"`
+	Path           string               `json:"path,omitempty"`
+	BasePort       int                  `json:"basePort"`
+	EnvOverrides   map[string]string    `json:"envOverrides,omitempty"`   // Deprecated: use EnvOverridesV2
 	EnvOverridesV2 *ContextEnvOverrides `json:"envOverridesV2,omitempty"` // New: layered overrides
 }
 

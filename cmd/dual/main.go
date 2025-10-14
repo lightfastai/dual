@@ -144,12 +144,12 @@ func runCommandWrapper(args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
 	}
-	defer reg.Close()
 
 	// Calculate port
 	logger.Verbose("Calculating port...")
 	port, err := service.CalculatePort(cfg, reg, projectIdentifier, contextName, serviceName)
 	if err != nil {
+		_ = reg.Close()
 		if errors.Is(err, service.ErrContextNotFound) {
 			return fmt.Errorf("context %q not found in registry\nHint: Run 'dual context create' to create this context", contextName)
 		}
@@ -210,6 +210,12 @@ func runCommandWrapper(args []string) error {
 
 	// Execute command
 	err = cmd.Run()
+
+	// Close registry before exiting to avoid exitAfterDefer lint error
+	if closeErr := reg.Close(); closeErr != nil {
+		fmt.Fprintf(os.Stderr, "[dual] Warning: failed to close registry: %v\n", closeErr)
+	}
+
 	if err != nil {
 		// Check if it's an exit error with a specific code
 		var exitErr *exec.ExitError
@@ -287,12 +293,13 @@ func main() {
 			}
 
 			// Filter out dual-specific flags
-			if arg == "--service" {
+			switch {
+			case arg == "--service":
 				skipNext = true
 				continue
-			} else if strings.HasPrefix(arg, "--service=") {
+			case strings.HasPrefix(arg, "--service="):
 				continue
-			} else if arg == "--verbose" || arg == "--debug" {
+			case arg == "--verbose" || arg == "--debug":
 				continue
 			}
 

@@ -20,9 +20,9 @@ var (
 	servicePath    string
 	serviceEnvFile string
 	// list command flags
-	listJSON      bool
-	listPorts     bool
-	listAbsPaths  bool
+	listJSON     bool
+	listPorts    bool
+	listAbsPaths bool
 	// remove command flags
 	forceRemove bool
 )
