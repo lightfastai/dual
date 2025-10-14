@@ -1,0 +1,137 @@
+# GoReleaser configuration for dual CLI
+# Documentation: https://goreleaser.com
+
+version: 2
+
+before:
+  hooks:
+    # Ensure dependencies are up to date
+    - go mod tidy
+    # Run tests before building
+    - go test ./...
+
+builds:
+  - id: dual
+    main: ./cmd/dual
+    binary: dual
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    # Set version information via ldflags
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+
+archives:
+  - id: dual
+    format: tar.gz
+    # Use zip for windows if we add it later
+    format_overrides:
+      - goos: windows
+        format: zip
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    files:
+      - README.md
+      - LICENSE*
+      - CLAUDE.md
+
+checksum:
+  name_template: 'checksums.txt'
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - 'merge conflict'
+      - Merge pull request
+      - Merge remote-tracking branch
+      - Merge branch
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: 'Bug fixes'
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: 'Performance improvements'
+      regexp: '^.*?perf(\([[:word:]]+\))??!?:.+$'
+      order: 2
+    - title: 'Refactors'
+      regexp: '^.*?refactor(\([[:word:]]+\))??!?:.+$'
+      order: 3
+    - title: Others
+      order: 999
+
+brews:
+  - name: dual
+    repository:
+      owner: lightfastai
+      name: homebrew-tap
+      # GoReleaser will use GITHUB_TOKEN to push to the tap repository
+      token: "{{ .Env.GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/lightfastai/dual"
+    description: "CLI tool that manages port assignments across different development contexts"
+    license: "MIT"
+    # Install instructions
+    install: |
+      bin.install "dual"
+    # Test instructions
+    test: |
+      system "#{bin}/dual", "--version"
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+
+release:
+  # Repository to release to
+  github:
+    owner: lightfastai
+    name: dual
+  # Create draft release for manual review
+  draft: false
+  # Mark as prerelease for versions with suffixes like -rc1, -beta
+  prerelease: auto
+  # Release name
+  name_template: "Release {{.Version}}"
+  # Footer template for release notes
+  footer: |
+    ## Installation
+
+    ### Homebrew (macOS/Linux)
+    ```bash
+    brew install lightfastai/tap/dual
+    ```
+
+    ### Manual Installation
+    Download the appropriate binary for your platform from the assets below and add it to your PATH.
+
+    ## Checksums
+    All binaries include checksums in `checksums.txt` for verification.
+
+# Announce releases (can be configured later)
+# announce:
+#   twitter:
+#     enabled: true
+#     message_template: 'dual {{ .Tag }} is out! Check it out at {{ .ReleaseURL }}'
