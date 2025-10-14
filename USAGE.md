@@ -9,15 +9,27 @@ Complete reference for all `dual` commands and their usage.
   - [dual init](#dual-init)
 - [Service Management](#service-management)
   - [dual service add](#dual-service-add)
+  - [dual service list](#dual-service-list)
+  - [dual service remove](#dual-service-remove)
 - [Context Management](#context-management)
   - [dual context](#dual-context)
   - [dual context create](#dual-context-create)
+  - [dual context list](#dual-context-list)
+  - [dual context delete](#dual-context-delete)
+- [Environment Management](#environment-management)
+  - [dual env / dual env show](#dual-env--dual-env-show)
+  - [dual env set](#dual-env-set)
+  - [dual env unset](#dual-env-unset)
+  - [dual env export](#dual-env-export)
+  - [dual env check](#dual-env-check)
+  - [dual env diff](#dual-env-diff)
 - [Port Queries](#port-queries)
   - [dual port](#dual-port)
   - [dual ports](#dual-ports)
 - [Utility Commands](#utility-commands)
   - [dual open](#dual-open)
   - [dual sync](#dual-sync)
+- [Debug & Verbose Options](#debug--verbose-options)
 - [Common Workflows](#common-workflows)
 
 ---
@@ -218,6 +230,174 @@ dual service add docs --path docs
 
 ---
 
+### dual service list
+
+List all services in your configuration.
+
+#### Syntax
+
+```bash
+dual service list [--json] [--ports] [--paths]
+```
+
+#### Options
+
+- `--json` - Output in JSON format for machine-readable processing
+- `--ports` - Show port assignments for each service in the current context
+- `--paths` - Show absolute paths instead of relative paths
+
+#### Examples
+
+##### Basic List
+
+```bash
+dual service list
+```
+
+Output:
+```
+Services in dual.config.yml:
+  api     apps/api      .env
+  web     apps/web      .vercel/.env.development.local
+  worker  apps/worker   .env.local
+
+Total: 3 services
+```
+
+##### With Port Assignments
+
+```bash
+dual service list --ports
+```
+
+Output:
+```
+Services (context: main, base: 4100):
+  api     apps/api      Port: 4101
+  web     apps/web      Port: 4102
+  worker  apps/worker   Port: 4103
+
+Total: 3 services
+```
+
+##### With Absolute Paths
+
+```bash
+dual service list --paths
+```
+
+Output:
+```
+Services in dual.config.yml:
+  api     /Users/dev/Code/myproject/apps/api      .env
+  web     /Users/dev/Code/myproject/apps/web      .vercel/.env.development.local
+  worker  /Users/dev/Code/myproject/apps/worker   .env.local
+
+Total: 3 services
+```
+
+##### JSON Format
+
+```bash
+dual service list --json --ports
+```
+
+Output:
+```json
+{
+  "services": [
+    {
+      "name": "api",
+      "path": "apps/api",
+      "envFile": ".env",
+      "port": 4101
+    },
+    {
+      "name": "web",
+      "path": "apps/web",
+      "envFile": ".vercel/.env.development.local",
+      "port": 4102
+    },
+    {
+      "name": "worker",
+      "path": "apps/worker",
+      "envFile": ".env.local",
+      "port": 4103
+    }
+  ]
+}
+```
+
+#### Use Cases
+
+- **Quick Reference**: See all configured services at a glance
+- **Port Planning**: Check port assignments before starting services
+- **CI/CD Integration**: Use JSON output for automated scripts
+- **Documentation**: Generate service documentation from configuration
+
+---
+
+### dual service remove
+
+Remove a service from the configuration.
+
+#### Syntax
+
+```bash
+dual service remove <name> [--force]
+```
+
+#### Arguments
+
+- `<name>` - Name of the service to remove
+
+#### Options
+
+- `--force` or `-f` - Skip confirmation prompt
+
+#### Examples
+
+##### Interactive Removal
+
+```bash
+dual service remove worker
+```
+
+Output:
+```
+Warning: Removing "worker" will change port assignments:
+  api: 4102 → 4101 (will move to index 0)
+  web: 4103 → 4102 (will move to index 1)
+
+Continue? (y/N): y
+[dual] Service "worker" removed from config
+```
+
+##### Force Removal (No Confirmation)
+
+```bash
+dual service remove worker --force
+```
+
+Output:
+```
+[dual] Service "worker" removed from config
+```
+
+#### Behavior
+
+**Port Assignment Changes**: Removing a service changes port assignments for all services that come after it alphabetically, since ports are calculated based on sorted order.
+
+**Confirmation**: By default, shows which services will be affected and prompts for confirmation. Use `--force` to skip.
+
+**File Safety**: This command only removes the service from `dual.config.yml`. It does NOT delete any files or directories.
+
+#### Warning
+
+After removing a service, any running instances of affected services will need to be restarted to use their new ports.
+
+---
+
 ## Context Management
 
 ### dual context
@@ -344,6 +524,756 @@ dual context create main --base-port 4100
 - Each context must have a unique base port
 - Contexts are stored in `~/.dual/registry.json`
 - Multiple worktrees of the same project can have different contexts
+
+---
+
+### dual context list
+
+List all contexts for the current project or all projects.
+
+#### Syntax
+
+```bash
+dual context list [--json] [--ports] [--all]
+```
+
+#### Options
+
+- `--json` - Output in JSON format for machine-readable processing
+- `--ports` - Show calculated port assignments for each service in each context
+- `--all` - Include contexts from all projects in the registry
+
+#### Examples
+
+##### List Contexts for Current Project
+
+```bash
+dual context list
+```
+
+Output:
+```
+Contexts for /Users/dev/Code/myproject:
+NAME          BASE PORT  CREATED     CURRENT
+main          4100       2024-01-15  (current)
+feature-auth  4200       2024-01-16
+staging       5100       2024-01-10
+
+Total: 3 contexts
+```
+
+##### List with Port Assignments
+
+```bash
+dual context list --ports
+```
+
+Output:
+```
+Contexts for /Users/dev/Code/myproject:
+NAME          BASE PORT  CREATED     PORTS                              CURRENT
+main          4100       2024-01-15  api:4101, web:4102, worker:4103   (current)
+feature-auth  4200       2024-01-16  api:4201, web:4202, worker:4203
+staging       5100       2024-01-10  api:5101, web:5102, worker:5103
+
+Total: 3 contexts
+```
+
+##### List All Projects
+
+```bash
+dual context list --all
+```
+
+Output:
+```
+Project: /Users/dev/Code/myproject
+NAME          BASE PORT  CREATED     CURRENT
+main          4100       2024-01-15
+feature-auth  4200       2024-01-16
+
+Project: /Users/dev/Code/otherproject
+NAME          BASE PORT  CREATED     CURRENT
+main          4300       2024-01-12  (current)
+
+Total: 3 contexts across 2 projects
+```
+
+##### JSON Format
+
+```bash
+dual context list --json --ports
+```
+
+Output:
+```json
+{
+  "projectRoot": "/Users/dev/Code/myproject",
+  "currentContext": "main",
+  "contexts": [
+    {
+      "name": "main",
+      "basePort": 4100,
+      "created": "2024-01-15T10:30:00Z",
+      "ports": {
+        "api": 4101,
+        "web": 4102,
+        "worker": 4103
+      }
+    },
+    {
+      "name": "feature-auth",
+      "basePort": 4200,
+      "created": "2024-01-16T14:20:00Z",
+      "ports": {
+        "api": 4201,
+        "web": 4202,
+        "worker": 4203
+      }
+    }
+  ]
+}
+```
+
+#### Use Cases
+
+- **Context Overview**: See all contexts and their port ranges at a glance
+- **Port Planning**: Check port assignments across contexts to avoid conflicts
+- **CI/CD Integration**: Use JSON output for automated deployment scripts
+- **Multi-Project Management**: Track contexts across all projects with `--all`
+
+---
+
+### dual context delete
+
+Delete a context from the registry.
+
+#### Syntax
+
+```bash
+dual context delete <name> [--force]
+```
+
+#### Arguments
+
+- `<name>` - Name of the context to delete
+
+#### Options
+
+- `--force` or `-f` - Skip confirmation prompt
+
+#### Examples
+
+##### Interactive Deletion
+
+```bash
+dual context delete feature-old
+```
+
+Output:
+```
+About to delete context: feature-old
+  Project: /Users/dev/Code/myproject
+  Base Port: 4300
+  Environment Overrides: 5
+
+Are you sure you want to delete this context? (y/N): y
+[dual] Deleted context "feature-old"
+```
+
+##### Force Deletion (No Confirmation)
+
+```bash
+dual context delete feature-old --force
+```
+
+Output:
+```
+About to delete context: feature-old
+  Project: /Users/dev/Code/myproject
+  Base Port: 4300
+[dual] Deleted context "feature-old"
+```
+
+#### Behavior
+
+**Current Context Protection**: Cannot delete the current context. Switch to a different branch or context first.
+
+**Environment Overrides**: Deleting a context also removes all environment variable overrides associated with it.
+
+**Confirmation**: By default, shows context details and prompts for confirmation. Use `--force` to skip.
+
+**Port Reclamation**: The base port is freed up and can be reused by future contexts.
+
+#### Safety
+
+This operation is permanent and cannot be undone. Make sure you're deleting the correct context.
+
+#### Error Cases
+
+```bash
+# Attempting to delete current context
+dual context delete main
+```
+
+Output:
+```
+Error: cannot delete current context "main"
+Hint: Switch to a different branch or context first
+```
+
+---
+
+## Environment Management
+
+The environment management system allows you to set context-specific and service-specific environment variable overrides. Variables are layered in priority order:
+
+1. **Runtime values** (highest priority) - PORT injected by dual
+2. **Context-specific overrides** - Set via `dual env set`
+3. **Base environment file** (lowest priority) - Loaded from `dual.config.yml`
+
+### dual env / dual env show
+
+Display environment variable summary and overrides for the current context.
+
+#### Syntax
+
+```bash
+dual env [show] [--values] [--base-only] [--overrides-only] [--json] [--service <name>]
+```
+
+#### Options
+
+- `--values` - Show actual variable values (by default, values are truncated for security)
+- `--base-only` - Show only variables from base environment file
+- `--overrides-only` - Show only context-specific overrides
+- `--json` - Output in JSON format
+- `--service <name>` - Show overrides for specific service
+
+#### Examples
+
+##### Basic Summary
+
+```bash
+dual env
+```
+
+Output:
+```
+Base:      .env (12 vars)
+Overrides: 3 vars
+Effective: 15 vars total
+
+Overrides for context 'main':
+  DATABASE_URL=mysql://localhost/mydb_main...
+  DEBUG=true
+  LOG_LEVEL=debug
+```
+
+##### Show All Values
+
+```bash
+dual env --values
+```
+
+Output:
+```
+Base:      .env (12 vars)
+Overrides: 3 vars
+Effective: 15 vars total
+
+Overrides for context 'main':
+  DATABASE_URL=mysql://localhost/mydb_main
+  DEBUG=true
+  LOG_LEVEL=debug
+```
+
+##### Show Only Base Variables
+
+```bash
+dual env --base-only
+```
+
+Output:
+```
+Base environment (.env):
+NODE_ENV
+API_KEY
+DATABASE_HOST
+DATABASE_PORT
+REDIS_URL
+...
+```
+
+##### Show Only Overrides
+
+```bash
+dual env --overrides-only --values
+```
+
+Output:
+```
+Overrides for context 'main':
+DATABASE_URL=mysql://localhost/mydb_main
+DEBUG=true
+LOG_LEVEL=debug
+```
+
+##### Show Service-Specific Overrides
+
+```bash
+dual env --service api --values
+```
+
+Output:
+```
+Base:      .env (12 vars)
+Overrides: 5 vars (including 2 service-specific for 'api')
+Effective: 17 vars total
+
+Overrides for context 'main':
+  DATABASE_URL=mysql://localhost/mydb_main (global)
+  DEBUG=true (global)
+  LOG_LEVEL=debug (global)
+  API_TIMEOUT=30s (api)
+  API_MAX_CONNECTIONS=100 (api)
+```
+
+##### JSON Output
+
+```bash
+dual env --json
+```
+
+Output:
+```json
+{
+  "context": "main",
+  "baseFile": ".env",
+  "stats": {
+    "baseVars": 12,
+    "overrideVars": 3,
+    "totalVars": 15
+  },
+  "base": {
+    "NODE_ENV": "development",
+    "API_KEY": "...",
+    "DATABASE_HOST": "localhost"
+  },
+  "overrides": {
+    "DATABASE_URL": "mysql://localhost/mydb_main",
+    "DEBUG": "true",
+    "LOG_LEVEL": "debug"
+  }
+}
+```
+
+---
+
+### dual env set
+
+Set a context-specific environment variable override.
+
+#### Syntax
+
+```bash
+dual env set <key> <value> [--service <name>]
+```
+
+#### Arguments
+
+- `<key>` - Environment variable name
+- `<value>` - Environment variable value
+
+#### Options
+
+- `--service <name>` - Set override only for a specific service (instead of globally for the context)
+
+#### Examples
+
+##### Set Global Override
+
+```bash
+dual env set DATABASE_URL "mysql://localhost/mydb_main"
+```
+
+Output:
+```
+[dual] Warning: Overriding variable "DATABASE_URL" from base environment
+Set DATABASE_URL=mysql://localhost/mydb_main for context 'main' (global)
+Context 'main' now has 3 override(s) (3 global, 0 service-specific)
+```
+
+##### Set Service-Specific Override
+
+```bash
+dual env set --service api API_TIMEOUT "30s"
+```
+
+Output:
+```
+Set API_TIMEOUT=30s for service 'api' in context 'main'
+Context 'main' now has 4 override(s) (3 global, 1 service-specific)
+```
+
+##### Override Multiple Variables
+
+```bash
+dual env set DEBUG "true"
+dual env set LOG_LEVEL "debug"
+dual env set CACHE_TTL "3600"
+```
+
+##### Service-Specific Database URLs
+
+```bash
+# Different database for each service
+dual env set --service api DATABASE_URL "mysql://localhost/api_db"
+dual env set --service web DATABASE_URL "mysql://localhost/web_db"
+dual env set --service worker DATABASE_URL "mysql://localhost/worker_db"
+```
+
+#### Behavior
+
+**Override Priority**: Service-specific overrides take precedence over global overrides, which take precedence over base environment file.
+
+**Warning on Conflict**: Shows a warning if overriding a variable from the base environment file.
+
+**Multiple Contexts**: Each context maintains its own set of overrides. Switching contexts automatically applies the correct overrides.
+
+#### Use Cases
+
+- **Context-Specific Databases**: Use different database names for each branch/context
+- **Debug Flags**: Enable debug mode only in development contexts
+- **API Endpoints**: Point to different backend URLs per context
+- **Feature Flags**: Enable experimental features in specific contexts
+- **Service Isolation**: Give each service its own configuration overrides
+
+---
+
+### dual env unset
+
+Remove a context-specific environment variable override.
+
+#### Syntax
+
+```bash
+dual env unset <key> [--service <name>]
+```
+
+#### Arguments
+
+- `<key>` - Environment variable name to unset
+
+#### Options
+
+- `--service <name>` - Unset service-specific override (instead of global)
+
+#### Examples
+
+##### Unset Global Override
+
+```bash
+dual env unset DATABASE_URL
+```
+
+Output:
+```
+Removed override for DATABASE_URL in context 'main'
+Fallback to base value: DATABASE_URL=mysql://localhost/defaultdb
+```
+
+##### Unset Service-Specific Override
+
+```bash
+dual env unset --service api API_TIMEOUT
+```
+
+Output:
+```
+Removed override for API_TIMEOUT in service 'api' for context 'main'
+```
+
+##### Unset Multiple Variables
+
+```bash
+dual env unset DEBUG
+dual env unset LOG_LEVEL
+dual env unset CACHE_TTL
+```
+
+#### Behavior
+
+**Fallback to Base**: If the variable exists in the base environment file, shows the base value that will be used.
+
+**Error on Missing**: Returns an error if the override doesn't exist.
+
+**Service vs Global**: Must specify `--service` to unset service-specific overrides.
+
+---
+
+### dual env export
+
+Export the complete merged environment to stdout.
+
+#### Syntax
+
+```bash
+dual env export [--format <format>] [--service <name>]
+```
+
+#### Options
+
+- `--format <format>` - Output format: `dotenv` (default), `json`, or `shell`
+- `--service <name>` - Export environment for specific service (includes service-specific overrides)
+
+#### Examples
+
+##### Export as Dotenv Format (Default)
+
+```bash
+dual env export
+```
+
+Output:
+```
+NODE_ENV=development
+API_KEY=abc123
+DATABASE_URL=mysql://localhost/mydb_main
+DEBUG=true
+LOG_LEVEL=debug
+PORT=0
+...
+```
+
+##### Export as JSON
+
+```bash
+dual env export --format=json
+```
+
+Output:
+```json
+{
+  "NODE_ENV": "development",
+  "API_KEY": "abc123",
+  "DATABASE_URL": "mysql://localhost/mydb_main",
+  "DEBUG": "true",
+  "LOG_LEVEL": "debug",
+  "PORT": "0"
+}
+```
+
+##### Export as Shell Format
+
+```bash
+dual env export --format=shell
+```
+
+Output:
+```bash
+export NODE_ENV='development'
+export API_KEY='abc123'
+export DATABASE_URL='mysql://localhost/mydb_main'
+export DEBUG='true'
+export LOG_LEVEL='debug'
+export PORT='0'
+```
+
+##### Export Service-Specific Environment
+
+```bash
+dual env export --service api --format=dotenv
+```
+
+Output:
+```
+NODE_ENV=development
+API_KEY=abc123
+DATABASE_URL=mysql://localhost/api_db
+API_TIMEOUT=30s
+API_MAX_CONNECTIONS=100
+DEBUG=true
+PORT=0
+...
+```
+
+##### Save to File
+
+```bash
+dual env export > .env.local
+dual env export --format=json > env.json
+dual env export --format=shell > env.sh
+```
+
+#### Use Cases
+
+- **CI/CD Integration**: Export environment for deployment pipelines
+- **Docker Builds**: Generate env files for container builds
+- **Debugging**: Inspect complete merged environment
+- **Team Sharing**: Share environment configuration (be careful with secrets!)
+- **Shell Sourcing**: `source <(dual env export --format=shell)`
+
+#### Notes
+
+- PORT is included but set to 0 (actual port is determined at runtime)
+- All layers are merged: base → overrides → runtime
+- Values with spaces or special characters are properly quoted
+
+---
+
+### dual env check
+
+Validate environment configuration for the current context.
+
+#### Syntax
+
+```bash
+dual env check
+```
+
+#### Examples
+
+##### Valid Configuration
+
+```bash
+dual env check
+```
+
+Output:
+```
+✓ Base environment file exists: .env (12 vars)
+✓ Context detected: main
+✓ Context has 3 environment override(s) (3 global, 0 service-specific)
+
+✓ Environment configuration is valid
+```
+
+Exit code: `0`
+
+##### Configuration Issues
+
+```bash
+dual env check
+```
+
+Output:
+```
+Error: Base environment file (.env) is not readable: file not found
+✓ Context detected: main
+✓ Context has 3 environment override(s) (3 global, 0 service-specific)
+
+❌ Environment configuration has issues
+```
+
+Exit code: `1`
+
+##### No Base File Configured
+
+```bash
+dual env check
+```
+
+Output:
+```
+ℹ No base environment file configured
+✓ Context detected: main
+ℹ Context has no environment overrides
+
+✓ Environment configuration is valid
+```
+
+Exit code: `0`
+
+#### What It Checks
+
+- **Base Environment File**: Exists and is readable (if configured)
+- **Context Detection**: Current context can be detected
+- **Registry**: Context exists in registry
+- **Override Counts**: Shows global and service-specific override counts
+
+#### Use Cases
+
+- **Pre-deployment Checks**: Validate environment before deploying
+- **CI/CD Pipelines**: Ensure environment is properly configured
+- **Troubleshooting**: Diagnose environment configuration issues
+- **Team Onboarding**: Verify new developer setup
+
+---
+
+### dual env diff
+
+Compare environment variables between two contexts.
+
+#### Syntax
+
+```bash
+dual env diff <context1> <context2>
+```
+
+#### Arguments
+
+- `<context1>` - First context name
+- `<context2>` - Second context name to compare against
+
+#### Examples
+
+##### Compare Two Contexts
+
+```bash
+dual env diff main feature-auth
+```
+
+Output:
+```
+Comparing environments: main → feature-auth
+
+Changed:
+  DATABASE_URL: mysql://localhost/mydb_main → mysql://localhost/mydb_auth
+  LOG_LEVEL: info → debug
+
+Added:
+  AUTH_DEBUG=true
+  JWT_SECRET=test123
+
+Removed:
+  LEGACY_MODE=true
+```
+
+##### No Differences
+
+```bash
+dual env diff main staging
+```
+
+Output:
+```
+Comparing environments: main → staging
+
+No differences found
+```
+
+##### Typical Use Case
+
+```bash
+# Before merging feature branch, check environment differences
+dual env diff main feature-new-api
+```
+
+#### Behavior
+
+- **Changed**: Variables with different values between contexts
+- **Added**: Variables only in context2
+- **Removed**: Variables only in context1
+- **PORT Excluded**: PORT is always excluded from comparison
+- **Complete Merge**: Compares fully merged environments (base + overrides)
+
+#### Use Cases
+
+- **Pre-merge Review**: Check environment differences before merging branches
+- **Configuration Audit**: Verify environment consistency across contexts
+- **Debugging**: Identify why behavior differs between contexts
+- **Documentation**: Document environment differences for deployment
 
 ---
 
@@ -607,6 +1537,110 @@ npm test  # Will read PORT from env files
 - Prefer the command wrapper (`dual <command>`) when possible
 - Synced values can become stale if context changes
 - Vercel's `vercel pull` may overwrite synced values
+
+---
+
+## Debug & Verbose Options
+
+All `dual` commands support verbose and debug output flags for troubleshooting and development.
+
+### Flags
+
+#### --verbose or -v
+
+Enable verbose output showing detailed operation steps.
+
+```bash
+dual --verbose pnpm dev
+dual -v port api
+```
+
+Output example:
+```
+Loading configuration...
+Detecting context...
+Detecting service...
+Calculating port...
+[dual] Context: main | Service: web | Port: 4101
+Executing command: pnpm dev
+```
+
+#### --debug or -d
+
+Enable debug output showing maximum detail including internal state. Implies `--verbose`.
+
+```bash
+dual --debug pnpm dev
+```
+
+Output example:
+```
+Loading configuration...
+Config: /Users/dev/Code/myproject
+Services: 3 ([api web worker])
+Detecting context...
+Loading registry...
+Calculating port...
+Environment: 15 variables total
+[dual] Context: main | Service: web | Port: 4101
+[dual] Env: base=12 overrides=3 total=15
+Executing command: pnpm dev
+```
+
+### Environment Variable
+
+You can also enable debug mode via environment variable:
+
+```bash
+export DUAL_DEBUG=1
+dual pnpm dev
+```
+
+This is useful for:
+- Shell scripts that call dual
+- CI/CD pipelines
+- Persistent debugging sessions
+
+### Examples
+
+#### Debug Port Calculation
+
+```bash
+dual --debug port api
+```
+
+#### Verbose Service List
+
+```bash
+dual --verbose service list
+```
+
+#### Debug Context Creation
+
+```bash
+dual --debug context create feature-test
+```
+
+#### Debug Environment Loading
+
+```bash
+dual --debug env show
+```
+
+### Use Cases
+
+- **Troubleshooting**: Diagnose configuration or detection issues
+- **Development**: Debug dual itself during development
+- **CI/CD**: Enable verbose output in pipelines for better logs
+- **Learning**: Understand how dual makes decisions
+- **Performance**: Identify slow operations
+
+### Tips
+
+- Use `--verbose` for general troubleshooting
+- Use `--debug` when reporting bugs or developing dual
+- Combine with other flags: `dual --debug --service api pnpm dev`
+- Debug output goes to stderr, so commands still work: `PORT=$(dual --debug port api)`
 
 ---
 
