@@ -6,199 +6,162 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `dual` is a CLI tool written in Go that manages port assignments across different development contexts (git branches, worktrees, or clones). It eliminates port conflicts when working on multiple features simultaneously by automatically detecting the context and service, then injecting the appropriate PORT environment variable.
 
-## Core Concepts
+## Core Architecture
 
-### Architecture Components
+### Command Flow
 
-1. **Command Wrapper**: Primary interface that intercepts commands and injects PORT environment variable
-   - Detects current context (git branch, `.dual-context` file, or "default")
-   - Detects service based on working directory matching against service paths
-   - Calculates port: `port = basePort + serviceIndex + 1`
-   - Executes wrapped command with PORT in environment
+The tool operates in two primary modes:
 
-2. **Registry System** (`~/.dual/registry.json`)
-   - Global, cross-project storage for context-to-port mappings
-   - Structure: projects → contexts → basePort mappings
-   - Tracks worktree paths for multi-location contexts
-   - Local to user, never committed
+1. **Command Wrapper Mode** (primary): Intercepts arbitrary commands via `dual <command>` and injects PORT
+2. **Management Mode**: Direct subcommands like `dual init`, `dual service add`, `dual context create`
 
-3. **Configuration** (`dual.config.yml`)
-   - Project-level service definitions
-   - Maps service names to paths and env files
-   - Can be committed for team sharing
-   - Service order determines port offsets
+The main entry point (cmd/dual/main.go:160-234) implements custom argument parsing to distinguish between wrapper mode and management mode before delegating to cobra commands.
 
-### Port Calculation Logic
+### Key Components
 
-```
-port = basePort + serviceIndex + 1
+**Config Layer** (`internal/config/`)
+- Loads and validates `dual.config.yml` from project root (or parent directories)
+- Schema version 1 with services map (name → path, envFile)
+- Validates paths exist and are relative to project root
+- Thread-safe file I/O with atomic writes
 
-Example with basePort 4100:
-  services[0] "web"    → 4101
-  services[1] "api"    → 4102
-  services[2] "worker" → 4103
-```
+**Registry Layer** (`internal/registry/`)
+- Global state in `~/.dual/registry.json` (per-user, cross-project)
+- Structure: projects → contexts → basePort mappings
+- Thread-safe with sync.RWMutex for concurrent dual instances
+- Atomic writes via temp file + rename pattern
+- Auto-recovers from corruption (returns empty registry)
 
-### Context Detection Priority
+**Context Detection** (`internal/context/`)
+- Priority: `.dual-context` file → git branch → "default"
+- Simple, no external dependencies beyond git command
 
-1. Git branch name (`git branch --show-current`)
-2. `.dual-context` file content (manual override)
-3. Fallback to "default"
+**Service Detection** (`internal/service/detector.go`)
+- Matches current working directory against service paths from config
+- Resolves symlinks for consistency across worktrees
+- Uses longest path match for nested service structures
+- Returns `ErrServiceNotDetected` if no match found
 
-### Service Detection
+**Port Calculation** (`internal/service/calculator.go`)
+- Formula: `port = basePort + serviceIndex + 1`
+- Services ordered alphabetically for determinism (not config order!)
+- Example: basePort 4100 → services: api→4101, web→4102, worker→4103
 
-Matches current working directory against configured service paths. Longest match wins to support nested structures.
+### Command Wrapper Implementation
 
-## Commands
+The wrapper (cmd/dual/main.go:78-157) follows this sequence:
+1. Load config and detect context
+2. Detect or validate service (supports `--service` override)
+3. Calculate port from registry
+4. Execute command with PORT injected into environment
+5. Stream stdout/stderr in real-time, preserve exit codes
 
-### Build & Test
+## Build and Test Commands
 
+### Build
 ```bash
-# Build the binary
+# Build binary
 go build -o dual ./cmd/dual
 
-# Run tests
+# Install to GOPATH/bin
+go install ./cmd/dual
+
+# Build with version info (used in CI/releases)
+go build -ldflags="-X main.version=1.0.0 -X main.commit=abc123 -X main.date=2024-01-01" -o dual ./cmd/dual
+```
+
+### Testing
+```bash
+# Unit tests (internal/ packages)
+go test -v -race -coverprofile=coverage.out ./internal/...
+
+# Integration tests (test/integration/)
+go test -v -timeout=10m ./test/integration/...
+
+# All tests
 go test ./...
 
-# Install locally for testing
-go install ./cmd/dual
+# Run specific test
+go test -v -run TestCalculatePort ./internal/service/...
+
+# Run tests with coverage
+go test -cover ./...
 ```
 
-### Core Command Structure
-
+### Linting
 ```bash
-# Command wrapper (primary use case)
-dual <command> [args...]
-dual --service <name> <command> [args...]
+# Run golangci-lint (requires golangci-lint installed)
+golangci-lint run
 
-# Initialization
-dual init
+# Run with auto-fix
+golangci-lint run --fix
 
-# Service management
-dual service add <name> --path <path> --env-file <file>
-
-# Context management
-dual context create [name] --base-port <port>
-dual context
-
-# Port queries
-dual port [service]
-dual ports
-
-# Utilities
-dual open <service>
-dual sync
+# Specific linters (configured in .golangci.yml)
+golangci-lint run --enable-only=gosec
 ```
 
-## Development Architecture
-
-### Expected Directory Structure
-
-```
-cmd/dual/          - CLI entry point and command definitions
-internal/
-  config/          - dual.config.yml parsing and management
-  registry/        - ~/.dual/registry.json operations
-  context/         - Context detection logic
-  service/         - Service detection and port calculation
-  wrapper/         - Command execution with environment injection
-pkg/               - Public/reusable packages if any
+### Git Configuration for Integration Tests
+Integration tests require git user config:
+```bash
+git config --global user.email "test@example.com"
+git config --global user.name "Test User"
 ```
 
-### Key Implementation Details
+## Development Patterns
 
-**Environment Variable Injection**:
-- Never write PORT to files (Vercel-proof design)
-- Inject PORT only into command execution environment
-- Preserve all other environment variables from parent shell
+### Error Handling
+- Use sentinel errors for expected conditions (e.g., `ErrServiceNotDetected`, `ErrContextNotFound`)
+- Wrap errors with context using `fmt.Errorf("context: %w", err)`
+- Check sentinel errors with `errors.Is(err, sentinel)`
+- Provide actionable hints in error messages (e.g., "Run 'dual init' to create...")
 
-**Registry Operations**:
-- Thread-safe file I/O (multiple dual instances may run simultaneously)
-- Atomic writes to prevent corruption
-- Handle missing/corrupt registry gracefully
+### Thread Safety
+- Registry uses `sync.RWMutex` - always lock before accessing Projects map
+- Config saves use atomic write pattern: write temp file → rename
+- Multiple dual instances can run concurrently
 
-**Git Integration**:
-- Use `git rev-parse --show-toplevel` to find project root
-- Use `git branch --show-current` for context detection
-- Support worktrees and multiple clones of same repository
+### Dependency Injection in Tests
+Detectors accept function parameters for git commands, getwd, evalSymlinks to enable mocking in tests. See internal/service/detector.go:20-27.
 
-**Service Path Matching**:
-- Normalize paths (resolve symlinks, relative → absolute)
-- Match against current working directory
-- Choose longest matching path for nested services
+### Security Notes
+- Commands executed via exec.Command are intentional (gosec G204 suppressed)
+- File reads from config paths are trusted (gosec G304 suppressed)
+- Test files excluded from most linters (see .golangci.yml)
 
-## Integration Points
+### Port Calculation Gotcha
+Services are sorted **alphabetically** for port assignment, not by order in config file. This ensures deterministic ports even if config order changes.
 
-### Vercel Integration
-- Never modify `.vercel/.env.development.local`
-- Support it as envFile target for `sync` command fallback
-- Command wrapper bypasses file-based PORT entirely
+## File Locations
 
-### Framework Compatibility
-- Universal: works with any framework/tool that respects PORT env var
-- Common targets: Next.js, Vite, Express, etc.
-- No framework-specific logic in core
+### User Data
+- Registry: `~/.dual/registry.json` (global, never committed)
+- Config: `dual.config.yml` (project root, can be committed)
+- Context override: `.dual-context` (worktree/clone specific)
 
-### CI/CD Considerations
-- `dual sync` command writes PORT to env files as fallback
-- Binary can be installed in CI for consistency
-- Provide direct download URLs for CI installation scripts
-
-## Configuration File Format
-
-### dual.config.yml
-```yaml
-version: 1  # Config schema version
-services:
-  <name>:
-    path: <relative-path>      # From project root
-    envFile: <env-file-path>   # For sync command
+### Code Structure
+```
+cmd/dual/          Command definitions (cobra commands)
+internal/config/   Config file parsing and validation
+internal/registry/ Global registry operations
+internal/context/  Context detection logic
+internal/service/  Service detection and port calculation
+test/integration/  End-to-end workflow tests
 ```
 
-### ~/.dual/registry.json
-```json
-{
-  "projects": {
-    "<absolute-project-path>": {
-      "contexts": {
-        "<context-name>": {
-          "basePort": <integer>,
-          "path": "<absolute-context-path>",  # Optional, for worktrees
-          "created": "<ISO-8601-timestamp>"
-        }
-      }
-    }
-  }
-}
-```
+## CI/CD
 
-## Testing Considerations
+The project uses GitHub Actions (.github/workflows/test.yml):
+- Unit tests with race detector and coverage
+- Integration tests with 10m timeout
+- golangci-lint with 5m timeout
+- Build verification
 
-- Test context detection across different git states
-- Test service matching with various directory structures
-- Test port calculation with different service counts
-- Test command wrapper with various shell commands
-- Test concurrent registry access
-- Mock filesystem operations for unit tests
-- Integration tests with actual git repositories
+All jobs must pass for successful CI run (test-summary job).
 
-## Error Handling Patterns
+## Design Principles
 
-- Configuration not found → helpful init instructions
-- Context not registered → suggest `dual context create`
-- Service not detected → list available services, show CWD
-- Registry corruption → attempt recovery, clear instructions
-- Git commands fail → graceful fallback to "default" context
-- Port already in use → informational only (don't prevent execution)
-
-## Output Design
-
-All dual-specific output should use prefix format:
-```
-[dual] Context: main | Service: web | Port: 4101
-```
-
-Show actual command being executed for transparency:
-```
-[dual] Executing: PORT=4101 pnpm dev
-```
+1. **Vercel-proof**: Never write PORT to files that might be overwritten by external tools
+2. **Transparent**: Always show user what command will execute and what port is used
+3. **Universal**: Works with any command/framework that respects PORT env var
+4. **Deterministic**: Same context + service always yields same port
+5. **Fail-safe**: Corrupt registry or missing config produce helpful errors, not crashes
