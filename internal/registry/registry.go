@@ -26,12 +26,19 @@ type Project struct {
 	Contexts map[string]Context `json:"contexts"`
 }
 
+// ContextEnvOverrides represents environment overrides at different levels
+type ContextEnvOverrides struct {
+	Global   map[string]string            `json:"global,omitempty"`   // Global overrides for all services
+	Services map[string]map[string]string `json:"services,omitempty"` // Service-specific overrides
+}
+
 // Context represents a development context (branch, worktree, etc.)
 type Context struct {
 	Created      time.Time         `json:"created"`
 	Path         string            `json:"path,omitempty"`
 	BasePort     int               `json:"basePort"`
-	EnvOverrides map[string]string `json:"envOverrides,omitempty"` // Optional: environment variable overrides
+	EnvOverrides map[string]string `json:"envOverrides,omitempty"` // Deprecated: use EnvOverridesV2
+	EnvOverridesV2 *ContextEnvOverrides `json:"envOverridesV2,omitempty"` // New: layered overrides
 }
 
 var (
@@ -230,8 +237,14 @@ func (r *Registry) SetContext(projectPath, contextName string, basePort int, con
 	return nil
 }
 
-// SetEnvOverride sets an environment variable override for a context
+// SetEnvOverrideGlobal sets a global environment variable override for a context
 func (r *Registry) SetEnvOverride(projectPath, contextName, key, value string) error {
+	return r.SetEnvOverrideForService(projectPath, contextName, key, value, "")
+}
+
+// SetEnvOverrideForService sets an environment variable override for a context and optional service
+// If serviceName is empty, sets a global override
+func (r *Registry) SetEnvOverrideForService(projectPath, contextName, key, value, serviceName string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -245,19 +258,21 @@ func (r *Registry) SetEnvOverride(projectPath, contextName, key, value string) e
 		return ErrContextNotFound
 	}
 
-	// Initialize EnvOverrides map if nil
-	if context.EnvOverrides == nil {
-		context.EnvOverrides = make(map[string]string)
-	}
-
-	context.EnvOverrides[key] = value
+	// Use context method to set override
+	context.SetEnvOverride(key, value, serviceName)
 	project.Contexts[contextName] = context
 
 	return nil
 }
 
-// UnsetEnvOverride removes an environment variable override for a context
+// UnsetEnvOverride removes a global environment variable override for a context
 func (r *Registry) UnsetEnvOverride(projectPath, contextName, key string) error {
+	return r.UnsetEnvOverrideForService(projectPath, contextName, key, "")
+}
+
+// UnsetEnvOverrideForService removes an environment variable override for a context and optional service
+// If serviceName is empty, removes from global overrides
+func (r *Registry) UnsetEnvOverrideForService(projectPath, contextName, key, serviceName string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -271,10 +286,9 @@ func (r *Registry) UnsetEnvOverride(projectPath, contextName, key string) error 
 		return ErrContextNotFound
 	}
 
-	if context.EnvOverrides != nil {
-		delete(context.EnvOverrides, key)
-		project.Contexts[contextName] = context
-	}
+	// Use context method to unset override
+	context.UnsetEnvOverride(key, serviceName)
+	project.Contexts[contextName] = context
 
 	return nil
 }
@@ -384,4 +398,116 @@ func (r *Registry) Close() error {
 		}
 	}
 	return nil
+}
+
+// GetEnvOverrides returns environment overrides for a context
+// Automatically migrates old format to new if needed
+// serviceName can be empty string for global overrides
+func (c *Context) GetEnvOverrides(serviceName string) map[string]string {
+	// Auto-migrate if needed
+	if c.EnvOverridesV2 == nil && c.EnvOverrides != nil {
+		c.migrateEnvOverrides()
+	}
+
+	// If still nil, return empty map
+	if c.EnvOverridesV2 == nil {
+		return make(map[string]string)
+	}
+
+	// Merge global and service-specific overrides
+	result := make(map[string]string)
+
+	// Start with global overrides
+	for k, v := range c.EnvOverridesV2.Global {
+		result[k] = v
+	}
+
+	// Apply service-specific overrides if service is specified
+	if serviceName != "" && c.EnvOverridesV2.Services != nil {
+		if serviceOverrides, exists := c.EnvOverridesV2.Services[serviceName]; exists {
+			for k, v := range serviceOverrides {
+				result[k] = v
+			}
+		}
+	}
+
+	return result
+}
+
+// migrateEnvOverrides migrates old format (flat map) to new format (layered)
+func (c *Context) migrateEnvOverrides() {
+	if c.EnvOverrides == nil {
+		return
+	}
+
+	c.EnvOverridesV2 = &ContextEnvOverrides{
+		Global:   c.EnvOverrides,
+		Services: make(map[string]map[string]string),
+	}
+
+	// Clear old format to prevent confusion
+	c.EnvOverrides = nil
+}
+
+// SetEnvOverride sets an environment override for a context
+// serviceName can be empty string for global overrides
+func (c *Context) SetEnvOverride(key, value, serviceName string) {
+	// Ensure EnvOverridesV2 is initialized
+	if c.EnvOverridesV2 == nil {
+		c.EnvOverridesV2 = &ContextEnvOverrides{
+			Global:   make(map[string]string),
+			Services: make(map[string]map[string]string),
+		}
+	}
+
+	if serviceName == "" {
+		// Global override
+		if c.EnvOverridesV2.Global == nil {
+			c.EnvOverridesV2.Global = make(map[string]string)
+		}
+		c.EnvOverridesV2.Global[key] = value
+	} else {
+		// Service-specific override
+		if c.EnvOverridesV2.Services == nil {
+			c.EnvOverridesV2.Services = make(map[string]map[string]string)
+		}
+		if c.EnvOverridesV2.Services[serviceName] == nil {
+			c.EnvOverridesV2.Services[serviceName] = make(map[string]string)
+		}
+		c.EnvOverridesV2.Services[serviceName][key] = value
+	}
+}
+
+// UnsetEnvOverride removes an environment override for a context
+// serviceName can be empty string for global overrides
+func (c *Context) UnsetEnvOverride(key, serviceName string) {
+	if c.EnvOverridesV2 == nil {
+		return
+	}
+
+	if serviceName == "" {
+		// Remove from global
+		if c.EnvOverridesV2.Global != nil {
+			delete(c.EnvOverridesV2.Global, key)
+		}
+	} else {
+		// Remove from service-specific
+		if c.EnvOverridesV2.Services != nil && c.EnvOverridesV2.Services[serviceName] != nil {
+			delete(c.EnvOverridesV2.Services[serviceName], key)
+		}
+	}
+}
+
+// GetEnvOverrideValue returns the value of a specific override
+// Returns empty string if not found
+func (c *Context) GetEnvOverrideValue(key, serviceName string) string {
+	overrides := c.GetEnvOverrides(serviceName)
+	return overrides[key]
+}
+
+// HasEnvOverride checks if an override exists
+func (c *Context) HasEnvOverride(key, serviceName string) bool {
+	overrides := c.GetEnvOverrides(serviceName)
+	_, exists := overrides[key]
+	return exists
 }

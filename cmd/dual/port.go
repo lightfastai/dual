@@ -49,8 +49,15 @@ func runPort(cmd *cobra.Command, args []string) error {
 
 	// Determine service name
 	var serviceName string
-	if len(args) > 0 {
-		// Service specified explicitly
+	if serviceOverride != "" {
+		// Use --service flag override (global persistent flag)
+		serviceName = serviceOverride
+		// Validate service exists in config
+		if _, exists := cfg.Services[serviceName]; !exists {
+			return fmt.Errorf("service %q not found in config\nAvailable services: %v", serviceName, getServiceNames(cfg))
+		}
+	} else if len(args) > 0 {
+		// Service specified explicitly as argument
 		serviceName = args[0]
 		// Validate service exists in config
 		if _, exists := cfg.Services[serviceName]; !exists {
@@ -61,7 +68,7 @@ func runPort(cmd *cobra.Command, args []string) error {
 		serviceName, err = service.DetectService(cfg, projectRoot)
 		if err != nil {
 			if errors.Is(err, service.ErrServiceNotDetected) {
-				return fmt.Errorf("could not auto-detect service from current directory\nAvailable services: %v\nHint: Run this command from within a service directory or specify the service name", getServiceNames(cfg))
+				return fmt.Errorf("could not auto-detect service from current directory\nAvailable services: %v\nHint: Run this command from within a service directory or use --service flag", getServiceNames(cfg))
 			}
 			return fmt.Errorf("failed to detect service: %w", err)
 		}

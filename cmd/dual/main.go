@@ -161,11 +161,14 @@ func runCommandWrapper(args []string) error {
 	if err != nil {
 		// This shouldn't happen since we just calculated the port successfully
 		// But handle it gracefully
-		ctx = &registry.Context{EnvOverrides: make(map[string]string)}
+		ctx = &registry.Context{}
 	}
 
+	// Get environment overrides for the detected service (merges global + service-specific)
+	overrides := ctx.GetEnvOverrides(serviceName)
+
 	// Load layered environment
-	layeredEnv, err := env.LoadLayeredEnv(projectRoot, cfg, contextName, ctx.EnvOverrides, port)
+	layeredEnv, err := env.LoadLayeredEnv(projectRoot, cfg, contextName, overrides, port)
 	if err != nil {
 		// Non-fatal: warn but continue with just PORT
 		fmt.Fprintf(os.Stderr, "[dual] Warning: failed to load environment: %v\n", err)
@@ -228,6 +231,7 @@ func main() {
 	var firstNonFlagArg string
 
 	// Find first non-flag argument and check for dual-specific flags
+	hasServiceFlag := false
 	for i := 1; i < len(os.Args); i++ {
 		arg := os.Args[i]
 
@@ -235,11 +239,11 @@ func main() {
 		switch {
 		case arg == "--service" && i+1 < len(os.Args):
 			serviceOverride = os.Args[i+1]
+			hasServiceFlag = true
 			i++ // Skip the next arg
-			shouldPassthrough = true
 		case strings.HasPrefix(arg, "--service="):
 			serviceOverride = strings.TrimPrefix(arg, "--service=")
-			shouldPassthrough = true
+			hasServiceFlag = true
 		case arg == "--verbose":
 			verboseFlag = true
 		case arg == "--debug":
@@ -249,13 +253,18 @@ func main() {
 		}
 	}
 
-	// If we found --service flag, we're in passthrough mode
-	// Or if first non-flag arg is not a known command
+	// Check if first non-flag arg is a known command
+	// If it's NOT a known command, then it's passthrough mode
 	if firstNonFlagArg != "" {
 		isKnownCommand := false
 		for _, cmd := range rootCmd.Commands() {
 			if cmd.Name() == firstNonFlagArg || cmd.HasAlias(firstNonFlagArg) {
 				isKnownCommand = true
+				// Special case: "env" command has its own --service flag for service-specific overrides
+				// Reset serviceOverride so it doesn't interfere with cobra parsing of env subcommands
+				if hasServiceFlag && (cmd.Name() == "env") {
+					serviceOverride = ""
+				}
 				break
 			}
 		}
