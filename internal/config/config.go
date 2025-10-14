@@ -96,12 +96,7 @@ func validateConfig(config *Config, projectRoot string) error {
 		return fmt.Errorf("unsupported config version %d (expected %d)", config.Version, SupportedVersion)
 	}
 
-	// Check services
-	if len(config.Services) == 0 {
-		return fmt.Errorf("at least one service must be defined")
-	}
-
-	// Validate each service
+	// Services can be empty (for initial setup), but if present, validate them
 	for name, service := range config.Services {
 		if err := validateService(name, service, projectRoot); err != nil {
 			return fmt.Errorf("service %q: %w", name, err)
@@ -156,6 +151,35 @@ func validateService(name string, service Service, projectRoot string) error {
 			}
 			return fmt.Errorf("failed to check envFile directory: %w", err)
 		}
+	}
+
+	return nil
+}
+
+// SaveConfig writes a config to the specified path atomically
+func SaveConfig(config *Config, path string) error {
+	// Marshal to YAML
+	data, err := yaml.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+
+	// Ensure directory exists
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	// Write to temporary file
+	tempFile := path + ".tmp"
+	if err := os.WriteFile(tempFile, data, 0644); err != nil {
+		return fmt.Errorf("failed to write temporary config: %w", err)
+	}
+
+	// Atomic rename
+	if err := os.Rename(tempFile, path); err != nil {
+		os.Remove(tempFile) // Clean up temp file on error
+		return fmt.Errorf("failed to save config: %w", err)
 	}
 
 	return nil
