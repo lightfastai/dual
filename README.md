@@ -15,7 +15,7 @@
 
 `dual` is a CLI tool that automatically manages port assignments across different development contexts (branches, worktrees, or clones), eliminating port conflicts and configuration headaches when working on multiple features simultaneously.
 
-[Features](#key-features) • [Installation](#installation) • [Quick Start](#quick-start) • [Documentation](#usage) • [Examples](#real-world-workflows)
+[Features](#key-features) • [Installation](#installation) • [Integration](#integration-with-web-projects) • [Quick Start](#quick-start) • [Documentation](#usage) • [Examples](#real-world-workflows)
 
 </div>
 
@@ -101,6 +101,199 @@ git clone https://github.com/lightfastai/dual.git
 cd dual
 go build -o dual ./cmd/dual
 mv dual /usr/local/bin/
+```
+
+## 🔌 Integration with Web Projects
+
+### Using dual in package.json Scripts
+
+While a dedicated npm package is planned for seamless `package.json` integration, you can use `dual` today with a simple bash wrapper script. This approach works great for teams that want to adopt `dual` immediately or prefer not to add an npm dependency.
+
+#### Creating a Bash Wrapper
+
+Create a wrapper script in your project's `scripts/` directory:
+
+**scripts/dev.sh:**
+```bash
+#!/bin/bash
+# Wrapper script to run dev server with dual port management
+
+# Check if dual is installed
+if ! command -v dual &> /dev/null; then
+  echo "⚠️  dual not found. Installing..."
+
+  # Auto-install based on platform
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS - use Homebrew
+    if ! command -v brew &> /dev/null; then
+      echo "❌ Homebrew not found. Please install dual manually:"
+      echo "   https://github.com/lightfastai/dual#installation"
+      exit 1
+    fi
+    brew tap lightfastai/tap
+    brew install dual
+  else
+    # Linux/other - use go install
+    if ! command -v go &> /dev/null; then
+      echo "❌ Go not found. Please install dual manually:"
+      echo "   https://github.com/lightfastai/dual#installation"
+      exit 1
+    fi
+    go install github.com/lightfastai/dual/cmd/dual@latest
+    echo "✅ dual installed to \$GOPATH/bin"
+    echo "   Make sure \$GOPATH/bin is in your PATH"
+  fi
+fi
+
+# Execute the actual command with dual, passing all arguments
+exec dual pnpm dev "$@"
+```
+
+Make it executable:
+```bash
+chmod +x scripts/dev.sh
+```
+
+#### Using the Wrapper in package.json
+
+Update your `package.json` to use the wrapper:
+
+```json
+{
+  "scripts": {
+    "dev": "./scripts/dev.sh",
+    "dev:verbose": "./scripts/dev.sh --verbose",
+    "build": "dual pnpm build",
+    "start": "dual pnpm start"
+  }
+}
+```
+
+Now team members can run:
+```bash
+pnpm dev        # Auto-installs dual if needed, then runs with port management
+pnpm build      # Builds with correct PORT
+pnpm start      # Starts production server with correct PORT
+```
+
+#### Creating Service-Specific Wrappers
+
+For monorepos with multiple services, create specific wrapper scripts:
+
+**scripts/dev-web.sh:**
+```bash
+#!/bin/bash
+if ! command -v dual &> /dev/null; then
+  echo "❌ dual not found. Install it first: brew install lightfastai/tap/dual"
+  exit 1
+fi
+
+# Change to web directory and run dev server
+cd "$(dirname "$0")/../apps/web" || exit 1
+exec dual pnpm dev "$@"
+```
+
+**scripts/dev-api.sh:**
+```bash
+#!/bin/bash
+if ! command -v dual &> /dev/null; then
+  echo "❌ dual not found. Install it first: brew install lightfastai/tap/dual"
+  exit 1
+fi
+
+# Change to api directory and run dev server
+cd "$(dirname "$0")/../apps/api" || exit 1
+exec dual pnpm dev "$@"
+```
+
+**package.json (monorepo root):**
+```json
+{
+  "scripts": {
+    "dev:web": "./scripts/dev-web.sh",
+    "dev:api": "./scripts/dev-api.sh",
+    "dev:all": "concurrently 'pnpm dev:web' 'pnpm dev:api'"
+  }
+}
+```
+
+#### Advantages and Trade-offs
+
+**Advantages:**
+- ✅ Works immediately, no waiting for npm package
+- ✅ No additional npm dependencies
+- ✅ Auto-installation provides smooth onboarding for new team members
+- ✅ Full control over wrapper behavior
+- ✅ Easy to customize for specific project needs
+
+**Trade-offs:**
+- ⚠️ Requires bash/shell environment (not Windows cmd.exe)
+- ⚠️ Each developer needs dual installed or script must handle installation
+- ⚠️ Slightly more verbose than native npm integration
+- ⚠️ Auto-installation adds setup time on first run
+
+**When to use this approach:**
+- You want to use `dual` immediately before the npm package is available
+- Your team is comfortable with bash scripts
+- You prefer minimal npm dependencies
+- You need custom setup logic before running commands
+
+**When to wait for the npm package:**
+- You need Windows cmd.exe support
+- You want the simplest possible `package.json` integration
+- You prefer zero custom scripts in your repository
+- Your team is less familiar with shell scripting
+
+#### Best Practices
+
+1. **Commit the wrapper scripts** to your repository so all team members benefit
+2. **Document the setup** in your project's README
+3. **Provide fallback instructions** for developers on platforms without Homebrew or Go
+4. **Test the installation path** - ensure `$GOPATH/bin` is in PATH when using `go install`
+5. **Use `exec`** in wrapper scripts to properly pass signals and exit codes
+6. **Pass all arguments** with `"$@"` to support flags like `--verbose` or `--debug`
+
+#### Example: Full Monorepo Setup
+
+**scripts/ensure-dual.sh** (shared helper):
+```bash
+#!/bin/bash
+# Shared function to ensure dual is installed
+
+ensure_dual() {
+  if ! command -v dual &> /dev/null; then
+    echo "⚠️  dual not found. Installing..."
+    if [[ "$OSTYPE" == "darwin"* ]] && command -v brew &> /dev/null; then
+      brew tap lightfastai/tap && brew install dual
+    elif command -v go &> /dev/null; then
+      go install github.com/lightfastai/dual/cmd/dual@latest
+    else
+      echo "❌ Cannot auto-install dual."
+      echo "   Install via: https://github.com/lightfastai/dual#installation"
+      exit 1
+    fi
+  fi
+}
+
+ensure_dual
+```
+
+**scripts/dev.sh:**
+```bash
+#!/bin/bash
+source "$(dirname "$0")/ensure-dual.sh"
+exec dual pnpm dev "$@"
+```
+
+**package.json:**
+```json
+{
+  "scripts": {
+    "dev": "./scripts/dev.sh",
+    "dev:web": "cd apps/web && ../scripts/dev.sh",
+    "dev:api": "cd apps/api && ../scripts/dev.sh"
+  }
+}
 ```
 
 ## 🚀 Quick Start
