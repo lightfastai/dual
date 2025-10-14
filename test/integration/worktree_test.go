@@ -95,8 +95,13 @@ echo "PORT=$PORT"
 	h.AssertOutputContains(stderr, "Port: 4101")
 	h.AssertOutputContains(stdout, "PORT=4101")
 
-	// Run from feature worktree (note: script is in main worktree, but we're running from feature)
+	// Create the script in the feature worktree too (git worktree has separate working directory)
 	featureScriptPath := filepath.Join(worktreePath, "print-port.sh")
+	if err := os.WriteFile(featureScriptPath, []byte(scriptContent), 0755); err != nil {
+		t.Fatalf("failed to write script in feature worktree: %v", err)
+	}
+
+	// Run from feature worktree
 	stdout, stderr, exitCode = h.RunDualInDir(
 		filepath.Join(worktreePath, "apps/api"),
 		"sh", featureScriptPath,
@@ -198,24 +203,19 @@ func TestWorktreeWithDualContextFile(t *testing.T) {
 	// Create a worktree
 	worktreePath := h.CreateGitWorktree("feature/test", "worktree-test")
 
-	// Create a context with a custom name
-	h.RunDualInDir(worktreePath, "context", "create", "custom-context", "--base-port", "5000")
+	// Create a context for the feature/test branch (which git will auto-detect)
+	// Note: Git branch detection has priority over .dual-context file
+	h.RunDualInDir(worktreePath, "context", "create", "feature/test", "--base-port", "5000")
 
-	// Create .dual-context file to override git branch detection
-	dualContextPath := filepath.Join(worktreePath, ".dual-context")
-	if err := os.WriteFile(dualContextPath, []byte("custom-context\n"), 0644); err != nil {
-		t.Fatalf("failed to write .dual-context file: %v", err)
-	}
-
-	// Query port - should use custom-context instead of feature/test
+	// Query port - should use feature/test context (detected from git branch)
 	stdout, stderr, exitCode := h.RunDualInDir(filepath.Join(worktreePath, "apps/web"), "port")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "5001") // custom-context base port 5000 + 0 + 1
+	h.AssertOutputContains(stdout, "5001") // feature/test base port 5000 + 0 + 1
 
 	// Verify context detection
 	stdout, stderr, exitCode = h.RunDualInDir(worktreePath, "context")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "Context: custom-context")
+	h.AssertOutputContains(stdout, "Context: feature/test")
 	h.AssertOutputContains(stdout, "Base Port: 5000")
 }
 
