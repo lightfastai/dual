@@ -79,16 +79,16 @@ KEY2=value2
 			expectError: false,
 		},
 		{
-			name: "empty file",
-			content: ``,
-			expected: map[string]string{},
+			name:        "empty file",
+			content:     ``,
+			expected:    map[string]string{},
 			expectError: false,
 		},
 		{
 			name: "only comments",
 			content: `# Comment 1
 # Comment 2`,
-			expected: map[string]string{},
+			expected:    map[string]string{},
 			expectError: false,
 		},
 		{
@@ -102,9 +102,9 @@ KEY2=value2`,
 			expectError: false,
 		},
 		{
-			name: "invalid format - empty key",
-			content: `=value`,
-			expected: nil,
+			name:        "invalid format - empty key",
+			content:     `=value`,
+			expected:    nil,
 			expectError: true,
 		},
 	}
@@ -160,7 +160,6 @@ func TestLoadEnvFile_FileNotFound(t *testing.T) {
 	}
 
 	result, err := loader.LoadEnvFile("nonexistent.env")
-
 	if err != nil {
 		t.Errorf("expected no error for nonexistent file, got: %v", err)
 	}
