@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,13 +15,22 @@ import (
 )
 
 var (
-	basePort int
+	basePort    int
+	contextJSON bool
 )
 
 var contextCmd = &cobra.Command{
 	Use:   "context",
 	Short: "Manage development contexts",
-	Long:  `Create, list, or remove development contexts from the registry.`,
+	Long: `Show or manage development contexts.
+
+When called without a subcommand, displays information about the current context.
+
+Examples:
+  dual context              # Show current context info
+  dual context --json       # Show current context as JSON
+  dual context create       # Create a new context`,
+	RunE: runContextInfo,
 }
 
 var contextCreateCmd = &cobra.Command{
@@ -37,10 +47,75 @@ If no base port is provided, an available port will be automatically assigned.`,
 }
 
 func init() {
+	contextCmd.Flags().BoolVar(&contextJSON, "json", false, "Output as JSON")
 	contextCreateCmd.Flags().IntVar(&basePort, "base-port", 0, "Base port for the context (auto-assigned if not specified)")
 
 	contextCmd.AddCommand(contextCreateCmd)
 	rootCmd.AddCommand(contextCmd)
+}
+
+func runContextInfo(cmd *cobra.Command, args []string) error {
+	// Load config to get project root
+	_, projectRoot, err := config.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w\nHint: Run 'dual init' to create a configuration file", err)
+	}
+
+	// Detect context
+	contextName, err := context.DetectContext()
+	if err != nil {
+		return fmt.Errorf("failed to detect context: %w", err)
+	}
+
+	// Load registry
+	reg, err := registry.LoadRegistry()
+	if err != nil {
+		return fmt.Errorf("failed to load registry: %w", err)
+	}
+
+	// Get context info
+	ctx, err := reg.GetContext(projectRoot, contextName)
+	if err != nil {
+		if err == registry.ErrContextNotFound || err == registry.ErrProjectNotFound {
+			return fmt.Errorf("context %q not found in registry\nHint: Run 'dual context create' to create this context", contextName)
+		}
+		return fmt.Errorf("failed to get context: %w", err)
+	}
+
+	// Output
+	if contextJSON {
+		return outputContextJSON(contextName, ctx)
+	}
+	return outputContextTable(contextName, ctx)
+}
+
+// outputContextTable prints context info in human-readable format
+func outputContextTable(contextName string, ctx *registry.Context) error {
+	fmt.Printf("Context: %s\n", contextName)
+	fmt.Printf("Base Port: %d\n", ctx.BasePort)
+	if ctx.Path != "" {
+		fmt.Printf("Path: %s\n", ctx.Path)
+	}
+	return nil
+}
+
+// outputContextJSON prints context info in JSON format
+func outputContextJSON(contextName string, ctx *registry.Context) error {
+	output := map[string]interface{}{
+		"name":     contextName,
+		"basePort": ctx.BasePort,
+	}
+	if ctx.Path != "" {
+		output["path"] = ctx.Path
+	}
+
+	data, err := json.MarshalIndent(output, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal JSON: %w", err)
+	}
+
+	fmt.Println(string(data))
+	return nil
 }
 
 func runContextCreate(cmd *cobra.Command, args []string) error {
