@@ -127,12 +127,15 @@ gh pr create --fill
    - Your changes added to `CHANGELOG.md`
    - Your changeset file removed
 4. A maintainer reviews and merges the Version Packages PR
-5. A git tag is automatically created
-6. The release is published to GitHub, Homebrew, and npm
+5. The release workflow automatically triggers and:
+   - Creates a git tag
+   - Builds binaries with GoReleaser
+   - Publishes to GitHub, Homebrew, and npm
+   - Verifies all distribution channels
 
 You don't need to do anything else!
 
-> **Note for maintainers:** See [RELEASE.md](RELEASE.md) for the complete release workflow, including required manual steps.
+> **Note for maintainers:** See [RELEASE.md](RELEASE.md) for the complete release workflow and troubleshooting.
 
 ## Changesets FAQ
 

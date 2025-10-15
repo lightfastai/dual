@@ -2,30 +2,97 @@ name: Release
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
+    paths:
+      - 'npm/package.json'
+      - '.changeset/**'
+  workflow_dispatch:
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.workflow }}
   cancel-in-progress: false
 
 permissions:
   contents: write
-  # Required for creating releases and pushing to homebrew-tap
   packages: write
-  # Required for npm provenance
   id-token: write
 
 jobs:
+  check-release:
+    name: Check if Release Needed
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.check.outputs.should_release }}
+      version: ${{ steps.check.outputs.version }}
+      tag: ${{ steps.check.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check if this is a version commit
+        id: check
+        run: |
+          VERSION=$(jq -r .version npm/package.json)
+          TAG="v$VERSION"
+
+          # Check if this was a version commit by changesets
+          COMMIT_MSG=$(git log -1 --pretty=%B)
+          if [[ "$COMMIT_MSG" != *"version packages"* ]]; then
+            echo "Not a version packages commit, skipping release"
+            echo "should_release=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Check if tag already exists (avoid duplicate releases)
+          if git ls-remote --tags origin | grep -q "refs/tags/$TAG$"; then
+            echo "Tag $TAG already exists, skipping release"
+            echo "should_release=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "New version detected: $VERSION"
+          echo "should_release=true" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+  create-tag:
+    name: Create Git Tag
+    needs: check-release
+    if: needs.check-release.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create and push tag
+        run: |
+          TAG=${{ needs.check-release.outputs.tag }}
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
+          echo "✅ Created and pushed tag $TAG"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   goreleaser:
+    name: Build and Release Binaries
+    needs: [check-release, create-tag]
+    if: needs.check-release.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          # Fetch all tags for changelog generation
           fetch-tags: true
+
+      - name: Fetch newly created tag
+        run: git fetch --tags
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -43,8 +110,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.LIGHTFAST_RELEASE_BOT_HOMEBREW_TAP_TOKEN || secrets.GITHUB_TOKEN }}
 
   npm-publish:
+    name: Publish to npm
+    needs: [check-release, goreleaser]
+    if: needs.check-release.outputs.should_release == 'true'
     runs-on: ubuntu-latest
-    needs: goreleaser
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -55,18 +124,12 @@ jobs:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Extract version from tag
-        id: version
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-          echo "Publishing version: $VERSION"
-
-      - name: Update package.json version
+      - name: Update package.json version (idempotent)
         working-directory: ./npm
         run: |
-          npm version ${{ steps.version.outputs.VERSION }} --no-git-tag-version --allow-same-version
-          echo "Updated package.json to version ${{ steps.version.outputs.VERSION }}"
+          VERSION=${{ needs.check-release.outputs.version }}
+          npm version $VERSION --no-git-tag-version --allow-same-version
+          echo "Updated package.json to version $VERSION"
 
       - name: Publish to npm
         working-directory: ./npm
@@ -75,19 +138,13 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.LIGHTFAST_RELEASE_BOT_NPM_TOKEN }}
 
   verify-release:
+    name: Verify Release
+    needs: [check-release, goreleaser, npm-publish]
+    if: needs.check-release.outputs.should_release == 'true'
     runs-on: ubuntu-latest
-    needs: [goreleaser, npm-publish]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Extract version from tag
-        id: version
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          TAG=${GITHUB_REF#refs/tags/}
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-          echo "TAG=$TAG" >> $GITHUB_OUTPUT
 
       - name: Wait for npm propagation
         run: |
@@ -96,20 +153,23 @@ jobs:
 
       - name: Verify GitHub Release
         run: |
-          echo "Verifying GitHub Release ${{ steps.version.outputs.TAG }}..."
-          gh release view ${{ steps.version.outputs.TAG }}
+          TAG=${{ needs.check-release.outputs.tag }}
+          echo "Verifying GitHub Release $TAG..."
+          gh release view $TAG
         env:
           GH_TOKEN: ${{ github.token }}
 
       - name: Verify npm package
         run: |
-          echo "Verifying npm package @lightfastai/dual@${{ steps.version.outputs.VERSION }}..."
-          npm view "@lightfastai/dual@${{ steps.version.outputs.VERSION }}"
+          VERSION=${{ needs.check-release.outputs.version }}
+          echo "Verifying npm package @lightfastai/dual@$VERSION..."
+          npm view "@lightfastai/dual@$VERSION"
 
       - name: Test binary download
         run: |
+          TAG=${{ needs.check-release.outputs.tag }}
           echo "Testing binary download for Linux x86_64..."
-          ASSET_URL="https://github.com/lightfastai/dual/releases/download/${{ steps.version.outputs.TAG }}/dual_Linux_x86_64.tar.gz"
+          ASSET_URL="https://github.com/lightfastai/dual/releases/download/$TAG/dual_Linux_x86_64.tar.gz"
           curl -fsSL "$ASSET_URL" -o dual.tar.gz
           tar -xzf dual.tar.gz
           chmod +x dual
@@ -118,15 +178,18 @@ jobs:
 
       - name: Verify Homebrew tap
         run: |
+          VERSION=${{ needs.check-release.outputs.version }}
           echo "Checking Homebrew formula..."
-          curl -fsSL https://raw.githubusercontent.com/lightfastai/homebrew-tap/main/Formula/dual.rb | grep -q "${{ steps.version.outputs.VERSION }}"
+          curl -fsSL https://raw.githubusercontent.com/lightfastai/homebrew-tap/main/Formula/dual.rb | grep -q "$VERSION"
           echo "Homebrew formula updated successfully!"
 
       - name: Release verification summary
         run: |
+          TAG=${{ needs.check-release.outputs.tag }}
+          VERSION=${{ needs.check-release.outputs.version }}
           echo "✅ All release channels verified successfully!"
           echo ""
-          echo "Release ${{ steps.version.outputs.TAG }} is available on:"
-          echo "  • GitHub: https://github.com/lightfastai/dual/releases/tag/${{ steps.version.outputs.TAG }}"
-          echo "  • npm: https://www.npmjs.com/package/@lightfastai/dual/v/${{ steps.version.outputs.VERSION }}"
+          echo "Release $TAG is available on:"
+          echo "  • GitHub: https://github.com/lightfastai/dual/releases/tag/$TAG"
+          echo "  • npm: https://www.npmjs.com/package/@lightfastai/dual/v/$VERSION"
           echo "  • Homebrew: https://github.com/lightfastai/homebrew-tap"

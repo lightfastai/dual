@@ -56,9 +56,10 @@ gh pr create --fill
    - All consumed changesets removed
 4. When a maintainer merges the "Version Packages" PR:
    - The version commit is pushed to `main`
-   - A git tag is automatically created (e.g., `v0.2.0`)
-   - The tag triggers the release workflow
-   - GoReleaser publishes to GitHub, Homebrew, and npm
+   - The release workflow automatically triggers (detects version change)
+   - A git tag is created (e.g., `v0.2.0`)
+   - GoReleaser publishes to GitHub and Homebrew
+   - npm package is published with provenance
    - All three channels are verified automatically
 
 **Visual Flow:**
@@ -72,51 +73,14 @@ Maintainer reviews changelog and version
 ↓
 Merge "Version Packages" PR
 ↓
-Auto-create git tag (v0.2.0)
+Release workflow auto-triggers (path-based on npm/package.json)
 ↓
-⚠️ MANUAL STEP REQUIRED (see Known Limitations below)
+├─ Create git tag (v0.2.0)
+├─ Build binaries with GoReleaser
+├─ Publish to npm with provenance
+└─ Verify all channels
 ↓
-Trigger release workflow
-↓
-Publish to GitHub + Homebrew + npm
-↓
-Verify all channels
-```
-
-### Known Limitations
-
-**⚠️ Manual Tag Re-Push Required**
-
-Due to GitHub Actions platform constraints, the release workflow does **not** automatically trigger when the `tag-from-version.yml` workflow creates a tag. This is a fundamental limitation: workflows triggered by GitHub Actions (even with PAT) cannot trigger other workflows.
-
-**After merging a "Version Packages" PR, you must manually re-push the tag:**
-
-```bash
-# Wait for tag-from-version workflow to create the tag
-# (Check Actions tab or run: git fetch --tags)
-
-# Re-push the tag from your local machine
-git fetch --tags
-git push origin v0.2.1  # Replace with actual version
-
-# This will trigger the release workflow
-```
-
-**Why this happens:**
-- GitHub Actions workflows cannot trigger other workflows, even with Personal Access Tokens
-- This is documented GitHub behavior to prevent infinite workflow loops
-- The tag-from-version workflow successfully creates the tag, but the release workflow won't run until the tag is pushed by a non-Actions source
-
-**Alternative solutions** (not currently implemented):
-- Use repository dispatch events (requires workflow changes)
-- Use external webhook service
-- Accept manual tag re-push as documented procedure (current approach)
-
-**Verification:**
-After re-pushing the tag, verify the release workflow started:
-```bash
-# Check if release workflow is running
-gh run list --workflow=release.yml --limit 5
+✅ Release complete on GitHub, Homebrew, and npm
 ```
 
 ### Alternative: Manual Release Process (Emergency/Hotfix)
@@ -444,18 +408,22 @@ If using a PAT (Personal Access Token):
 
 **Symptom:**
 - "Version Packages" PR was merged
-- tag-from-version workflow ran successfully and created the tag
 - Release workflow never started
 
 **Solution:**
-This is expected behavior due to GitHub Actions limitations. Manually re-push the tag:
+Check the workflow run logs in the Actions tab. The release workflow triggers automatically on `npm/package.json` changes. If it didn't run:
+
+1. Verify the commit message contains "version packages"
+2. Check that the workflow file exists at `.github/workflows/release.yml`
+3. Look for workflow errors in the Actions tab
 
 ```bash
-git fetch --tags
-git push origin vX.Y.Z  # Replace with the actual version tag
-```
+# Check recent workflow runs
+gh run list --workflow=release.yml --limit 5
 
-See "Known Limitations" section above for detailed explanation.
+# View details of a specific run
+gh run view <run-id> --log
+```
 
 ### Verification Job Fails
 
@@ -477,17 +445,21 @@ The release workflow is defined in `.github/workflows/release.yml`:
 name: Release
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
+    paths:
+      - 'npm/package.json'
+      - '.changeset/**'
+  workflow_dispatch:
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.workflow }}
   cancel-in-progress: false
 ```
 
 This workflow:
-- Triggers on any tag starting with `v`
-- Runs three jobs in sequence: `goreleaser` → `npm-publish` → `verify-release`
+- Triggers automatically when `npm/package.json` is modified on `main` branch
+- Detects "version packages" commits from Changesets
+- Runs five jobs in sequence: `check-release` → `create-tag` → `goreleaser` + `npm-publish` → `verify-release`
 - Uses concurrency control to prevent simultaneous releases
 - Requires Go 1.23 and Node.js 20
 - Requires `LIGHTFAST_RELEASE_BOT_HOMEBREW_TAP_TOKEN` and `LIGHTFAST_RELEASE_BOT_NPM_TOKEN` secrets
