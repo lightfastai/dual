@@ -13,9 +13,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	createFromRef string
-)
+var createFromRef string
 
 var createCmd = &cobra.Command{
 	Use:   "create <branch-name>",
@@ -48,7 +46,56 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w\nHint: Run 'dual init' to create a configuration file", err)
 	}
 
-	// Validate that we're running from the project root
+	// Validate we're in project root
+	if err := validateProjectRoot(projectRoot); err != nil {
+		return err
+	}
+
+	// Get the normalized project identifier for registry operations
+	projectIdentifier, err := config.GetProjectIdentifier(projectRoot)
+	if err != nil {
+		return fmt.Errorf("failed to get project identifier: %w", err)
+	}
+
+	// Load registry (using projectRoot to construct the correct registry file path)
+	reg, err := registry.LoadRegistry(projectRoot)
+	if err != nil {
+		return fmt.Errorf("failed to load registry: %w", err)
+	}
+	defer reg.Close()
+
+	// Validate context doesn't exist
+	if reg.ContextExists(projectIdentifier, branchName) {
+		return fmt.Errorf("context %q already exists\nHint: Use a different branch name or delete the existing context first", branchName)
+	}
+
+	// Determine worktree path
+	worktreePath, err := prepareWorktreePath(cfg, projectRoot, branchName)
+	if err != nil {
+		return err
+	}
+
+	// Create git worktree
+	if err := createGitWorktree(projectRoot, branchName, worktreePath); err != nil {
+		return err
+	}
+
+	// Register context
+	if err := registerContext(reg, projectIdentifier, branchName, worktreePath, projectRoot); err != nil {
+		return err
+	}
+
+	fmt.Fprintf(os.Stderr, "[dual] Created context: %s\n", branchName)
+
+	// Execute hooks and apply env overrides
+	executeHooksAndApplyEnv(cfg, reg, projectRoot, projectIdentifier, branchName, worktreePath)
+
+	printSuccess(branchName, worktreePath)
+	return nil
+}
+
+// validateProjectRoot checks we're running from the project root
+func validateProjectRoot(projectRoot string) error {
 	currentDir, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get current directory: %w", err)
@@ -68,56 +115,32 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("dual create must be run from the project root directory\nCurrent directory: %s\nProject root: %s\nHint: cd %s", currentDir, projectRoot, projectRoot)
 	}
 
-	// Get the normalized project identifier for registry operations
-	projectIdentifier, err := config.GetProjectIdentifier(projectRoot)
-	if err != nil {
-		return fmt.Errorf("failed to get project identifier: %w", err)
-	}
+	return nil
+}
 
-	// Load registry (using projectRoot to construct the correct registry file path)
-	reg, err := registry.LoadRegistry(projectRoot)
-	if err != nil {
-		return fmt.Errorf("failed to load registry: %w", err)
-	}
-	defer reg.Close()
-
-	// Check if context already exists
-	if reg.ContextExists(projectIdentifier, branchName) {
-		return fmt.Errorf("context %q already exists\nHint: Use a different branch name or delete the existing context first", branchName)
-	}
-
-	// Determine worktree path
+// prepareWorktreePath determines and validates the worktree path
+func prepareWorktreePath(cfg *config.Config, projectRoot, branchName string) (string, error) {
 	worktreesBasePath := cfg.GetWorktreePath(projectRoot)
 	worktreeName := cfg.GetWorktreeName(branchName)
 	worktreePath := filepath.Join(worktreesBasePath, worktreeName)
 
 	// Check if worktree directory already exists
 	if _, err := os.Stat(worktreePath); err == nil {
-		return fmt.Errorf("worktree directory already exists: %s\nHint: Remove it manually or use a different branch name", worktreePath)
+		return "", fmt.Errorf("worktree directory already exists: %s\nHint: Remove it manually or use a different branch name", worktreePath)
 	}
 
 	// Create worktrees base directory if it doesn't exist
 	if err := os.MkdirAll(worktreesBasePath, 0o755); err != nil {
-		return fmt.Errorf("failed to create worktrees directory: %w", err)
+		return "", fmt.Errorf("failed to create worktrees directory: %w", err)
 	}
 
+	return worktreePath, nil
+}
+
+// createGitWorktree creates the git worktree
+func createGitWorktree(projectRoot, branchName, worktreePath string) error {
 	// Build git worktree add command
-	gitArgs := []string{"worktree", "add"}
-
-	// Add branch flag
-	if createFromRef == "" {
-		// Create new branch from current HEAD
-		gitArgs = append(gitArgs, "-b", branchName)
-	} else {
-		// Create new branch from specific ref
-		gitArgs = append(gitArgs, "-b", branchName, worktreePath, createFromRef)
-		// We've already added all args, so we'll handle this case specially
-	}
-
-	// Add worktree path
-	if createFromRef == "" {
-		gitArgs = append(gitArgs, worktreePath)
-	}
+	gitArgs := buildGitWorktreeArgs(branchName, worktreePath)
 
 	fmt.Fprintf(os.Stderr, "[dual] Creating git worktree...\n")
 	fmt.Fprintf(os.Stderr, "  Branch: %s\n", branchName)
@@ -137,6 +160,26 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create git worktree: %w\nHint: Make sure you're in a git repository and the branch name is valid", err)
 	}
 
+	return nil
+}
+
+// buildGitWorktreeArgs constructs git worktree add arguments
+func buildGitWorktreeArgs(branchName, worktreePath string) []string {
+	gitArgs := []string{"worktree", "add"}
+
+	if createFromRef == "" {
+		// Create new branch from current HEAD
+		gitArgs = append(gitArgs, "-b", branchName, worktreePath)
+	} else {
+		// Create new branch from specific ref
+		gitArgs = append(gitArgs, "-b", branchName, worktreePath, createFromRef)
+	}
+
+	return gitArgs
+}
+
+// registerContext creates and saves context in registry
+func registerContext(reg *registry.Registry, projectIdentifier, branchName, worktreePath, projectRoot string) error {
 	// Create context in registry
 	if err := reg.SetContext(projectIdentifier, branchName, worktreePath); err != nil {
 		// Cleanup: remove the worktree we just created
@@ -152,8 +195,11 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to save registry: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "[dual] Created context: %s\n", branchName)
+	return nil
+}
 
+// executeHooksAndApplyEnv runs hooks and applies environment overrides
+func executeHooksAndApplyEnv(cfg *config.Config, reg *registry.Registry, projectRoot, projectIdentifier, branchName, worktreePath string) {
 	// Prepare hook context
 	hookCtx := hooks.HookContext{
 		Event:       hooks.PostWorktreeCreate,
@@ -170,47 +216,53 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[dual] Warning: postWorktreeCreate hook failed: %v\n", err)
 		fmt.Fprintf(os.Stderr, "[dual] Worktree created but hooks failed. You may need to run setup manually.\n")
-		// Don't rollback - the worktree is created and might be useful
-		envOverrides = hooks.NewEnvOverrides() // Use empty overrides
+		return
 	}
 
-	// Apply environment overrides to registry
-	if !envOverrides.IsEmpty() {
-		// Apply global overrides (serviceName = "")
-		for key, value := range envOverrides.Global {
-			if err := reg.SetEnvOverrideForService(projectIdentifier, branchName, key, value, ""); err != nil {
-				fmt.Fprintf(os.Stderr, "[dual] Warning: failed to set global env override %s: %v\n", key, err)
-			}
-		}
+	// Apply environment overrides
+	applyEnvOverrides(cfg, reg, projectIdentifier, branchName, worktreePath, envOverrides)
+}
 
-		// Apply service-specific overrides
-		for serviceName, serviceVars := range envOverrides.Services {
-			for key, value := range serviceVars {
-				if err := reg.SetEnvOverrideForService(projectIdentifier, branchName, key, value, serviceName); err != nil {
-					fmt.Fprintf(os.Stderr, "[dual] Warning: failed to set service env override %s.%s: %v\n", serviceName, key, err)
-				}
-			}
-		}
+// applyEnvOverrides applies environment overrides to registry and generates env files
+func applyEnvOverrides(cfg *config.Config, reg *registry.Registry, projectIdentifier, branchName, worktreePath string, envOverrides *hooks.EnvOverrides) {
+	if envOverrides.IsEmpty() {
+		return
+	}
 
-		// Save registry with new overrides
-		if err := reg.SaveRegistry(); err != nil {
-			fmt.Fprintf(os.Stderr, "[dual] Warning: failed to save registry with env overrides: %v\n", err)
-		}
-
-		// Generate service env files in the worktree (not parent repo)
-		if err := env.GenerateServiceEnvFiles(cfg, reg, worktreePath, projectIdentifier, branchName); err != nil {
-			fmt.Fprintf(os.Stderr, "[dual] Warning: failed to generate service env files: %v\n", err)
+	// Apply global overrides (serviceName = "")
+	for key, value := range envOverrides.Global {
+		if err := reg.SetEnvOverrideForService(projectIdentifier, branchName, key, value, ""); err != nil {
+			fmt.Fprintf(os.Stderr, "[dual] Warning: failed to set global env override %s: %v\n", key, err)
 		}
 	}
 
+	// Apply service-specific overrides
+	for serviceName, serviceVars := range envOverrides.Services {
+		for key, value := range serviceVars {
+			if err := reg.SetEnvOverrideForService(projectIdentifier, branchName, key, value, serviceName); err != nil {
+				fmt.Fprintf(os.Stderr, "[dual] Warning: failed to set service env override %s.%s: %v\n", serviceName, key, err)
+			}
+		}
+	}
+
+	// Save registry with new overrides
+	if err := reg.SaveRegistry(); err != nil {
+		fmt.Fprintf(os.Stderr, "[dual] Warning: failed to save registry with env overrides: %v\n", err)
+	}
+
+	// Generate service env files in the worktree (not parent repo)
+	if err := env.GenerateServiceEnvFiles(cfg, reg, worktreePath, projectIdentifier, branchName); err != nil {
+		fmt.Fprintf(os.Stderr, "[dual] Warning: failed to generate service env files: %v\n", err)
+	}
+}
+
+// printSuccess prints success message
+func printSuccess(branchName, worktreePath string) {
 	fmt.Fprintf(os.Stderr, "\n[dual] Worktree created successfully!\n")
 	fmt.Fprintf(os.Stderr, "  Context: %s\n", branchName)
 	fmt.Fprintf(os.Stderr, "  Path: %s\n", worktreePath)
-
 	fmt.Fprintf(os.Stderr, "\nTo switch to this worktree:\n")
 	fmt.Fprintf(os.Stderr, "  cd %s\n", worktreePath)
-
-	return nil
 }
 
 // removeGitWorktree removes a git worktree

@@ -384,12 +384,12 @@ func TestWriteServiceEnvFile_SpecialCharacters(t *testing.T) {
 	tempDir := t.TempDir()
 
 	vars := map[string]string{
-		"SIMPLE":          "value",
-		"WITH_SPACES":     "value with spaces",
-		"WITH_QUOTES":     `value with "quotes"`,
-		"WITH_NEWLINE":    "value\nwith\nnewlines",
-		"WITH_BACKSLASH":  `value\with\backslash`,
-		"WITH_HASH":       "value # with hash",
+		"SIMPLE":         "value",
+		"WITH_SPACES":    "value with spaces",
+		"WITH_QUOTES":    `value with "quotes"`,
+		"WITH_NEWLINE":   "value\nwith\nnewlines",
+		"WITH_BACKSLASH": `value\with\backslash`,
+		"WITH_HASH":      "value # with hash",
 	}
 
 	outputPath := filepath.Join(tempDir, ".env")

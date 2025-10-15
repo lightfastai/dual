@@ -1,7 +1,6 @@
 package integration
 
 import (
-	"os"
 	"strings"
 	"testing"
 )
@@ -195,8 +194,3 @@ worktrees:
 // TestContextAutoPortAssignment tests automatic port assignment
 // REMOVED: This test was specific to port assignment functionality which has been removed.
 // The worktree lifecycle manager no longer manages ports.
-
-// makeExecutable makes a file executable
-func makeExecutable(path string) error {
-	return os.Chmod(path, 0o755)
-}

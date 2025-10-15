@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -15,9 +16,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	deleteForce bool
-)
+var deleteForce bool
 
 var deleteCmd = &cobra.Command{
 	Use:   "delete <context-name>",
@@ -82,7 +81,7 @@ func runDelete(cmd *cobra.Command, args []string) error {
 	// Get context info
 	ctx, err := reg.GetContext(projectIdentifier, contextName)
 	if err != nil {
-		if err == registry.ErrContextNotFound || err == registry.ErrProjectNotFound {
+		if errors.Is(err, registry.ErrContextNotFound) || errors.Is(err, registry.ErrProjectNotFound) {
 			return fmt.Errorf("context %q not found\nHint: Run 'dual list' to see available contexts", contextName)
 		}
 		return fmt.Errorf("failed to get context: %w", err)

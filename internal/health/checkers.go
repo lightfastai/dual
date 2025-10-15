@@ -308,7 +308,6 @@ func CheckEnvironmentFiles(ctx *CheckerContext) Check {
 		WithDetails(validFiles...)
 }
 
-
 // CheckWorktrees validates worktree configuration
 func CheckWorktrees(ctx *CheckerContext) Check {
 	check := NewCheck("Worktrees", StatusPass, "")

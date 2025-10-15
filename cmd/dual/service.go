@@ -1,13 +1,11 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 
 	"github.com/lightfastai/dual/internal/config"
 	"github.com/spf13/cobra"
@@ -301,16 +299,4 @@ func runServiceRemove(cmd *cobra.Command, args []string) error {
 	fmt.Printf("[dual] Service %q removed from config\n", serviceName)
 
 	return nil
-}
-
-func promptConfirm(message string) bool {
-	fmt.Printf("%s (y/N): ", message)
-	reader := bufio.NewReader(os.Stdin)
-	response, err := reader.ReadString('\n')
-	if err != nil {
-		return false
-	}
-
-	response = strings.TrimSpace(strings.ToLower(response))
-	return response == "y" || response == "yes"
 }

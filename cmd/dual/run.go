@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -40,14 +41,12 @@ Examples:
 
   # Explicitly specify service
   dual run --service api node server.js`,
-	RunE:              runCommand,
-	Args:              cobra.MinimumNArgs(1),
+	RunE:               runCommand,
+	Args:               cobra.MinimumNArgs(1),
 	DisableFlagParsing: false,
 }
 
-var (
-	runServiceName string
-)
+var runServiceName string
 
 func init() {
 	rootCmd.AddCommand(runCmd)
@@ -143,7 +142,8 @@ func runCommand(cmd *cobra.Command, args []string) error {
 
 	// Run command and return exit code
 	if err := execCmd.Run(); err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
 			os.Exit(exitErr.ExitCode())
 		}
 		return fmt.Errorf("command execution failed: %w", err)

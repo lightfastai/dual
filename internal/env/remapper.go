@@ -1,6 +1,7 @@
 package env
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -20,7 +21,7 @@ func GenerateServiceEnvFiles(cfg *config.Config, reg *registry.Registry, project
 	ctx, err := reg.GetContext(projectIdentifier, contextName)
 	if err != nil {
 		// If context doesn't exist, nothing to generate
-		if err == registry.ErrContextNotFound || err == registry.ErrProjectNotFound {
+		if errors.Is(err, registry.ErrContextNotFound) || errors.Is(err, registry.ErrProjectNotFound) {
 			return nil
 		}
 		return fmt.Errorf("failed to get context: %w", err)
@@ -126,7 +127,7 @@ func writeServiceEnvFile(serviceName, contextName string, vars map[string]string
 
 	// Write file atomically
 	tempFile := outputPath + ".tmp"
-	if err := os.WriteFile(tempFile, []byte(builder.String()), 0o644); err != nil {
+	if err := os.WriteFile(tempFile, []byte(builder.String()), 0o600); err != nil {
 		return fmt.Errorf("failed to write temporary file: %w", err)
 	}
 

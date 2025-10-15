@@ -107,8 +107,8 @@ func TestEnvRemappingWithDualCreate(t *testing.T) {
 	workerContent := h.ReadFileInDir(worktreePath, workerEnvPath)
 	h.AssertOutputContains(workerContent, "DATABASE_URL=postgres://localhost/testdb")
 	h.AssertOutputContains(workerContent, "REDIS_URL=redis://localhost:6379")
-	h.AssertOutputNotContains(workerContent, "API_KEY=")    // Should not have API_KEY
-	h.AssertOutputNotContains(workerContent, "WEB_TOKEN=")  // Should not have WEB_TOKEN
+	h.AssertOutputNotContains(workerContent, "API_KEY=")   // Should not have API_KEY
+	h.AssertOutputNotContains(workerContent, "WEB_TOKEN=") // Should not have WEB_TOKEN
 
 	// Step 10: Verify header comments are present
 	t.Log("Step 10: Verify header comments")
