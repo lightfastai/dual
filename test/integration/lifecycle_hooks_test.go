@@ -16,7 +16,6 @@ func TestEnvRemappingWithDualCreate(t *testing.T) {
 	// Step 1: Initialize git repo
 	t.Log("Step 1: Initialize git repository")
 	h.InitGitRepo()
-	h.CreateGitBranch("main")
 
 	// Step 2: Initialize dual
 	t.Log("Step 2: Initialize dual configuration")
@@ -38,14 +37,9 @@ func TestEnvRemappingWithDualCreate(t *testing.T) {
 	h.RunGitCommand("add", ".")
 	h.RunGitCommand("commit", "-m", "Add dual config and services")
 
-	// Step 4: Create main context
-	t.Log("Step 4: Create main context")
-	stdout, stderr, exitCode := h.RunDual("create", "main")
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-
-	// Step 5: Create worktree using dual create (creates new context)
-	t.Log("Step 5: Create worktree with dual create")
-	stdout, stderr, exitCode = h.RunDual("create", "feature-test")
+	// Step 4: Create worktree using dual create (creates new context)
+	t.Log("Step 4: Create worktree with dual create")
+	stdout, stderr, exitCode := h.RunDual("create", "feature-test")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 	h.AssertOutputContains(stderr, "Worktree created successfully")
 
@@ -128,7 +122,6 @@ func TestEnvRemappingRegeneration(t *testing.T) {
 	// Setup: Create worktree with initial env vars
 	t.Log("Setup: Initialize repository and create worktree")
 	h.InitGitRepo()
-	h.CreateGitBranch("main")
 	h.RunDual("init")
 
 	h.CreateDirectory("apps/web")
@@ -142,7 +135,6 @@ func TestEnvRemappingRegeneration(t *testing.T) {
 	h.RunGitCommand("commit", "-m", "Add dual config")
 
 	// Create context
-	h.RunDual("create", "main")
 
 	// Create worktree
 	stdout, stderr, exitCode := h.RunDual("create", "feature-regen")
@@ -193,7 +185,6 @@ func TestEnvRemapCommand(t *testing.T) {
 	// Setup
 	t.Log("Setup: Initialize repository and create worktree")
 	h.InitGitRepo()
-	h.CreateGitBranch("main")
 	h.RunDual("init")
 
 	h.CreateDirectory("apps/web")
@@ -203,7 +194,6 @@ func TestEnvRemapCommand(t *testing.T) {
 	h.RunGitCommand("add", ".")
 	h.RunGitCommand("commit", "-m", "Add dual config")
 
-	h.RunDual("create", "main")
 
 	stdout, stderr, exitCode := h.RunDual("create", "feature-remap")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
@@ -258,7 +248,6 @@ func TestEnvRemappingCleanup(t *testing.T) {
 	// Setup
 	t.Log("Setup: Create worktree with env files")
 	h.InitGitRepo()
-	h.CreateGitBranch("main")
 	h.RunDual("init")
 
 	h.CreateDirectory("apps/web")
@@ -268,7 +257,6 @@ func TestEnvRemappingCleanup(t *testing.T) {
 	h.RunGitCommand("add", ".")
 	h.RunGitCommand("commit", "-m", "Add dual config")
 
-	h.RunDual("create", "main")
 
 	stdout, stderr, exitCode := h.RunDual("create", "feature-cleanup")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
@@ -309,7 +297,6 @@ func TestEnvRemappingWithHooks(t *testing.T) {
 	// Setup
 	t.Log("Setup: Initialize repository")
 	h.InitGitRepo()
-	h.CreateGitBranch("main")
 	h.RunDual("init")
 
 	h.CreateDirectory("apps/web")
@@ -350,7 +337,6 @@ hooks:
 	h.RunGitCommand("add", ".")
 	h.RunGitCommand("commit", "-m", "Add dual config with hooks")
 
-	h.RunDual("create", "main")
 
 	// Create worktree
 	t.Log("Create worktree with hooks")
@@ -402,7 +388,6 @@ func TestEnvRemappingEmptyOverrides(t *testing.T) {
 	// Setup: Create worktree WITHOUT setting any env overrides
 	t.Log("Setup: Create worktree without env overrides")
 	h.InitGitRepo()
-	h.CreateGitBranch("main")
 	h.RunDual("init")
 
 	h.CreateDirectory("apps/web")
@@ -412,7 +397,6 @@ func TestEnvRemappingEmptyOverrides(t *testing.T) {
 	h.RunGitCommand("add", ".")
 	h.RunGitCommand("commit", "-m", "Add dual config")
 
-	h.RunDual("create", "main")
 	// NOTE: NOT setting any env overrides
 
 	stdout, stderr, exitCode := h.RunDual("create", "feature-empty")
@@ -438,7 +422,6 @@ func TestEnvRemappingServiceSpecificOnly(t *testing.T) {
 	// Setup
 	t.Log("Setup: Create worktree with only service-specific overrides")
 	h.InitGitRepo()
-	h.CreateGitBranch("main")
 	h.RunDual("init")
 
 	h.CreateDirectory("apps/web")
@@ -451,7 +434,6 @@ func TestEnvRemappingServiceSpecificOnly(t *testing.T) {
 	h.RunGitCommand("add", ".")
 	h.RunGitCommand("commit", "-m", "Add dual config")
 
-	h.RunDual("create", "main")
 
 	stdout, stderr, exitCode := h.RunDual("create", "feature-service-only")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
@@ -489,7 +471,6 @@ func TestEnvRemappingQuotedValues(t *testing.T) {
 	// Setup
 	t.Log("Setup: Create worktree with special character values")
 	h.InitGitRepo()
-	h.CreateGitBranch("main")
 	h.RunDual("init")
 
 	h.CreateDirectory("apps/web")
@@ -499,7 +480,6 @@ func TestEnvRemappingQuotedValues(t *testing.T) {
 	h.RunGitCommand("add", ".")
 	h.RunGitCommand("commit", "-m", "Add dual config")
 
-	h.RunDual("create", "main")
 
 	stdout, stderr, exitCode := h.RunDual("create", "feature-quoted")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
@@ -536,7 +516,6 @@ func TestEnvRemappingWithPORT(t *testing.T) {
 	// Setup
 	t.Log("Setup: Create worktree with PORT override")
 	h.InitGitRepo()
-	h.CreateGitBranch("main")
 	h.RunDual("init")
 
 	h.CreateDirectory("apps/web")
@@ -549,7 +528,6 @@ func TestEnvRemappingWithPORT(t *testing.T) {
 	h.RunGitCommand("add", ".")
 	h.RunGitCommand("commit", "-m", "Add dual config")
 
-	h.RunDual("create", "main")
 
 	stdout, stderr, exitCode := h.RunDual("create", "feature-port")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)

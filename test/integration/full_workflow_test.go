@@ -102,7 +102,6 @@ func TestFullWorkflowWithEnvFile(t *testing.T) {
 
 	// Initialize git repository
 	h.InitGitRepo()
-	h.CreateGitBranch("main")
 
 	// Initialize dual
 	h.RunDual("init")
