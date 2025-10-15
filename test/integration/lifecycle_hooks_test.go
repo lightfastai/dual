@@ -194,7 +194,6 @@ func TestEnvRemapCommand(t *testing.T) {
 	h.RunGitCommand("add", ".")
 	h.RunGitCommand("commit", "-m", "Add dual config")
 
-
 	stdout, stderr, exitCode := h.RunDual("create", "feature-remap")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 
@@ -256,7 +255,6 @@ func TestEnvRemappingCleanup(t *testing.T) {
 	h.WriteFile("apps/web/.gitkeep", "")
 	h.RunGitCommand("add", ".")
 	h.RunGitCommand("commit", "-m", "Add dual config")
-
 
 	stdout, stderr, exitCode := h.RunDual("create", "feature-cleanup")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
@@ -336,7 +334,6 @@ hooks:
 	h.WriteFile("apps/web/.gitkeep", "")
 	h.RunGitCommand("add", ".")
 	h.RunGitCommand("commit", "-m", "Add dual config with hooks")
-
 
 	// Create worktree
 	t.Log("Create worktree with hooks")
@@ -434,7 +431,6 @@ func TestEnvRemappingServiceSpecificOnly(t *testing.T) {
 	h.RunGitCommand("add", ".")
 	h.RunGitCommand("commit", "-m", "Add dual config")
 
-
 	stdout, stderr, exitCode := h.RunDual("create", "feature-service-only")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 
@@ -479,7 +475,6 @@ func TestEnvRemappingQuotedValues(t *testing.T) {
 	h.WriteFile("apps/web/.gitkeep", "")
 	h.RunGitCommand("add", ".")
 	h.RunGitCommand("commit", "-m", "Add dual config")
-
 
 	stdout, stderr, exitCode := h.RunDual("create", "feature-quoted")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
@@ -527,7 +522,6 @@ func TestEnvRemappingWithPORT(t *testing.T) {
 	h.WriteFile("apps/api/.gitkeep", "")
 	h.RunGitCommand("add", ".")
 	h.RunGitCommand("commit", "-m", "Add dual config")
-
 
 	stdout, stderr, exitCode := h.RunDual("create", "feature-port")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
