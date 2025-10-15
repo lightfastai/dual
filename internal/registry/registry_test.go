@@ -38,7 +38,7 @@ func TestLoadRegistry_CorruptFile(t *testing.T) {
 	projectRoot := t.TempDir()
 
 	// Create registry directory
-	registryDir := filepath.Join(projectRoot, ".dual")
+	registryDir := filepath.Join(projectRoot, ".dual", ".local")
 	if err := os.MkdirAll(registryDir, 0o755); err != nil {
 		t.Fatalf("Failed to create registry directory: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestLoadRegistry_ValidFile(t *testing.T) {
 	projectRoot := t.TempDir()
 
 	// Create registry directory
-	registryDir := filepath.Join(projectRoot, ".dual")
+	registryDir := filepath.Join(projectRoot, ".dual", ".local")
 	if err := os.MkdirAll(registryDir, 0o755); err != nil {
 		t.Fatalf("Failed to create registry directory: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestSaveRegistry(t *testing.T) {
 	}
 
 	// Verify file exists
-	registryPath := filepath.Join(projectRoot, ".dual", "registry.json")
+	registryPath := filepath.Join(projectRoot, ".dual", ".local", "registry.json")
 	if _, err := os.Stat(registryPath); os.IsNotExist(err) {
 		t.Fatal("Registry file was not created")
 	}
@@ -440,7 +440,7 @@ func TestGetRegistryPath(t *testing.T) {
 		t.Fatalf("GetRegistryPath() failed: %v", err)
 	}
 
-	expected := filepath.Join(projectRoot, ".dual", "registry.json")
+	expected := filepath.Join(projectRoot, ".dual", ".local", "registry.json")
 	if path != expected {
 		t.Errorf("Expected path '%s', got '%s'", expected, path)
 	}

@@ -221,7 +221,7 @@ func TestLockPathGeneration(t *testing.T) {
 		t.Fatalf("GetLockPath() failed: %v", err)
 	}
 
-	expected := filepath.Join(projectRoot, ".dual", "registry.json.lock")
+	expected := filepath.Join(projectRoot, ".dual", ".local", "registry.json.lock")
 	if lockPath != expected {
 		t.Errorf("Expected lock path '%s', got '%s'", expected, lockPath)
 	}

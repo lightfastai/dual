@@ -346,8 +346,9 @@ Each project has its own state directory:
 
 ```
 .dual/
-├── registry.json              # Context-to-worktree mappings
-├── registry.json.lock         # Lock file for concurrent access
+├── .local/
+│   ├── registry.json          # Context-to-worktree mappings
+│   └── registry.json.lock     # Lock file for concurrent access
 └── hooks/                     # Hook scripts
     ├── setup-environment.sh
     ├── setup-database.sh
@@ -611,7 +612,7 @@ If you're upgrading from v0.2.x, here are the key changes:
    - Implement port assignment in hooks instead
    - See hook examples above for custom port logic
 
-2. **Registry Location**: Moved from `~/.dual/registry.json` to `$PROJECT_ROOT/.dual/registry.json`
+2. **Registry Location**: Moved from `~/.dual/registry.json` to `$PROJECT_ROOT/.dual/.local/registry.json`
    - Registry is now project-local, not global
    - Contexts must be recreated with `dual create`
 
@@ -659,8 +660,7 @@ If you're upgrading from v0.2.x, here are the key changes:
 
 5. **Add `.dual/` to `.gitignore`**:
    ```gitignore
-   .dual/registry.json
-   .dual/registry.json.lock
+   .dual/.local/
    ```
 
 For detailed migration assistance, run `dual doctor` to diagnose configuration issues.

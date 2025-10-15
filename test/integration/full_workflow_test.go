@@ -14,9 +14,6 @@ func TestFullWorkflow(t *testing.T) {
 	// Initialize git repository
 	h.InitGitRepo()
 
-	// Create a main branch
-	h.CreateGitBranch("main")
-
 	// Step 1: dual init
 	t.Log("Step 1: Running dual init")
 	stdout, stderr, exitCode := h.RunDual("init")
@@ -62,22 +59,41 @@ func TestFullWorkflow(t *testing.T) {
 	h.AssertFileContains("dual.config.yml", "worker:")
 	h.AssertFileContains("dual.config.yml", "apps/worker")
 
-	// Step 3: Create context
+	// Add worktrees configuration to enable dual create
+	h.WriteFile("dual.config.yml", `version: 1
+services:
+  web:
+    path: apps/web
+  api:
+    path: apps/api
+  worker:
+    path: apps/worker
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
+`)
+
+	// Create an initial commit (required for git worktree add)
+	h.WriteFile("README.md", "# Test Project")
+	h.RunGitCommand("add", "README.md")
+	h.RunGitCommand("commit", "-m", "Initial commit")
+
+	// Step 3: Create context (using a feature branch name to avoid conflicts)
 	t.Log("Step 3: Creating context")
-	stdout, stderr, exitCode = h.RunDual("context", "create", "main")
+	stdout, stderr, exitCode = h.RunDual("create", "feature-x")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "Created context \"main\"")
+	h.AssertOutputContains(stdout, "Worktree created successfully")
 
 	// Verify registry was created
 	if !h.RegistryExists() {
 		t.Fatal("registry.json was not created")
 	}
 
-	// Step 4: Query context
-	t.Log("Step 4: Querying context")
-	stdout, stderr, exitCode = h.RunDual("context")
+	// Step 4: Verify context exists in list
+	t.Log("Step 4: Verifying context in list")
+	stdout, stderr, exitCode = h.RunDual("list")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "Context: main")
+	h.AssertOutputContains(stdout, "feature-x")
 }
 
 // TestFullWorkflowWithEnvFile tests the workflow with env file configuration
@@ -147,21 +163,33 @@ func TestContextAutoDetection(t *testing.T) {
 	defer h.RestoreHome()
 
 	h.InitGitRepo()
-	h.CreateGitBranch("feature/awesome-feature")
 
-	// Initialize dual
-	h.RunDual("init")
+	// Initialize dual with worktrees config
+	h.WriteFile("dual.config.yml", `version: 1
+services:
+  api:
+    path: services/api
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
+`)
+	h.CreateDirectory("services/api")
 
-	// Create context without specifying name (should auto-detect from git branch)
-	stdout, stderr, exitCode := h.RunDual("context", "create")
+	// Create an initial commit (required for git worktree add)
+	h.WriteFile("README.md", "# Test Project")
+	h.RunGitCommand("add", "README.md")
+	h.RunGitCommand("commit", "-m", "Initial commit")
+
+	// Create a feature branch worktree - dual create will create both the branch and worktree
+	stdout, stderr, exitCode := h.RunDual("create", "feature/awesome-feature")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "Auto-detected context name: feature/awesome-feature")
-	h.AssertOutputContains(stdout, "Created context \"feature/awesome-feature\"")
+	h.AssertOutputContains(stdout, "Worktree created successfully")
 
-	// Query context should show the auto-detected name
-	stdout, stderr, exitCode = h.RunDual("context")
+	// Verify the worktree was created and appears in the list
+	stdout, stderr, exitCode = h.RunDual("list")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "Context: feature/awesome-feature")
+	h.AssertOutputContains(stdout, "feature/awesome-feature")
+	// The test validates that worktrees can be created with branch names containing slashes
 }
 
 // TestContextAutoPortAssignment tests automatic port assignment

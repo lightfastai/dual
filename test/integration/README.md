@@ -234,7 +234,7 @@ Integration tests run automatically on every push and pull request via GitHub Ac
 Each test is completely isolated:
 
 1. **Temporary Directories**: Each test gets its own temp directory via `t.TempDir()`
-2. **Registry Isolation**: Project-local registry at `$PROJECT_ROOT/.dual/registry.json` (not global)
+2. **Registry Isolation**: Project-local registry at `$PROJECT_ROOT/.dual/.local/registry.json` (not global)
 3. **HOME Isolation**: HOME environment variable set to test-specific directory
 4. **Git Repositories**: Fresh git repos created for each test
 5. **Binary Building**: Dual binary built once per test (cached by Go)
@@ -243,7 +243,7 @@ Each test is completely isolated:
 ### Project-Local Registry
 
 Tests in v0.3.0 use project-local registries:
-- Registry location: `$PROJECT_ROOT/.dual/registry.json`
+- Registry location: `$PROJECT_ROOT/.dual/.local/registry.json`
 - Each test project has its own isolated registry
 - Worktrees share their parent repo's registry via path normalization
 - No global state across tests
@@ -282,7 +282,7 @@ When adding new integration tests:
 5. **Document Setup**: Document any special setup requirements (e.g., git commits for worktrees)
 6. **Keep Tests Fast**: Aim for < 2 seconds per test when possible
 7. **Use RestoreHome**: Call `defer h.RestoreHome()` to restore HOME after tests
-8. **Test Project-Local Registry**: Verify registry operations use `$PROJECT_ROOT/.dual/registry.json`
+8. **Test Project-Local Registry**: Verify registry operations use `$PROJECT_ROOT/.dual/.local/registry.json`
 9. **Test Worktree Isolation**: When testing worktrees, verify context sharing via parent repo registry
 10. **Hook Testing**: When testing hooks, ensure scripts are made executable with `os.Chmod(path, 0o755)`
 

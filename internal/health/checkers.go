@@ -94,7 +94,7 @@ func CheckRegistry(ctx *CheckerContext) Check {
 		return check.
 			WithStatus(StatusError).
 			WithMessage("Registry could not be loaded").
-			WithFixAction("Delete $PROJECT_ROOT/.dual/registry.json and run 'dual create'")
+			WithFixAction("Delete $PROJECT_ROOT/.dual/.local/registry.json and run 'dual create'")
 	}
 
 	// Count contexts

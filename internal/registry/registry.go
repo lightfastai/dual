@@ -14,7 +14,7 @@ import (
 	"github.com/gofrs/flock"
 )
 
-// Registry represents the project-local registry structure stored in $PROJECT_ROOT/.dual/registry.json
+// Registry represents the project-local registry structure stored in $PROJECT_ROOT/.dual/.local/registry.json
 type Registry struct {
 	Projects    map[string]Project `json:"projects"`
 	mu          sync.RWMutex       `json:"-"`
@@ -53,15 +53,15 @@ var (
 
 // GetRegistryPath returns the path to the project-local registry file
 func GetRegistryPath(projectRoot string) (string, error) {
-	return filepath.Join(projectRoot, ".dual", "registry.json"), nil
+	return filepath.Join(projectRoot, ".dual", ".local", "registry.json"), nil
 }
 
 // GetLockPath returns the path to the project-local registry lock file
 func GetLockPath(projectRoot string) (string, error) {
-	return filepath.Join(projectRoot, ".dual", "registry.json.lock"), nil
+	return filepath.Join(projectRoot, ".dual", ".local", "registry.json.lock"), nil
 }
 
-// LoadRegistry reads the registry from $PROJECT_ROOT/.dual/registry.json with file locking
+// LoadRegistry reads the registry from $PROJECT_ROOT/.dual/.local/registry.json with file locking
 // If the file doesn't exist or is corrupt, it returns a new empty registry
 // The caller MUST call Close() on the returned registry to release the lock
 func LoadRegistry(projectRoot string) (*Registry, error) {
@@ -136,7 +136,7 @@ func LoadRegistry(projectRoot string) (*Registry, error) {
 	return registry, nil
 }
 
-// SaveRegistry writes the registry to $PROJECT_ROOT/.dual/registry.json atomically
+// SaveRegistry writes the registry to $PROJECT_ROOT/.dual/.local/registry.json atomically
 // Uses the stored projectRoot field from LoadRegistry
 func (r *Registry) SaveRegistry() error {
 	r.mu.Lock()

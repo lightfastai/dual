@@ -230,7 +230,7 @@ This design allows a single config file to work correctly in both the main repos
 ### Breaking Changes
 - Services can now be empty (previously required at least one)
 - Hook validation warnings instead of errors for missing scripts
-- Registry moved from global to project-local (`$PROJECT_ROOT/.dual/registry.json`)
+- Registry moved from global to project-local (`$PROJECT_ROOT/.dual/.local/registry.json`)
 
 ### Migration Steps
 1. Add `worktrees` section to config if using `dual create`

@@ -83,7 +83,7 @@ func runDelete(cmd *cobra.Command, args []string) error {
 	ctx, err := reg.GetContext(projectIdentifier, contextName)
 	if err != nil {
 		if err == registry.ErrContextNotFound || err == registry.ErrProjectNotFound {
-			return fmt.Errorf("context %q not found\nHint: Run 'dual context list' to see available contexts", contextName)
+			return fmt.Errorf("context %q not found\nHint: Run 'dual list' to see available contexts", contextName)
 		}
 		return fmt.Errorf("failed to get context: %w", err)
 	}

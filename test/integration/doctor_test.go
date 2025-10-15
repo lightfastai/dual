@@ -32,8 +32,23 @@ func TestDoctorCommand(t *testing.T) {
 		h.CreateDirectory("apps/api")
 		h.RunDual("service", "add", "api", "--path", "apps/api")
 
+		// Add worktrees configuration
+		h.WriteFile("dual.config.yml", `version: 1
+services:
+  api:
+    path: apps/api
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
+`)
+
+		// Create an initial commit (required for git worktree add)
+		h.WriteFile("README.md", "# Test Project")
+		h.RunGitCommand("add", "README.md")
+		h.RunGitCommand("commit", "-m", "Initial commit")
+
 		// Create a context matching the branch
-		h.RunDual("context", "create", "--name", "main")
+		h.RunDual("create", "main")
 
 		// Run doctor
 		stdout, stderr, exitCode := h.RunDual("doctor")
@@ -138,23 +153,35 @@ func TestDoctorCommand(t *testing.T) {
 		h.InitGitRepo()
 		h.CreateGitBranch("main")
 
-		// Initialize dual config
-		h.RunDual("init")
+		// Initialize dual config with worktrees
+		h.WriteFile("dual.config.yml", `version: 1
+services:
+  api:
+    path: apps/api
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
+`)
 
 		// Add a service
 		h.CreateDirectory("apps/api")
-		h.RunDual("service", "add", "api", "--path", "apps/api")
+
+		// Create an initial commit (required for git worktree add)
+		h.WriteFile("README.md", "# Test Project")
+		h.RunGitCommand("add", "README.md")
+		h.RunGitCommand("commit", "-m", "Initial commit")
 
 		// Create main context first (this will create the registry)
-		h.RunDual("context", "create", "--name", "main")
+		h.RunDual("create", "main")
 
-		// Create a context with a path
-		contextPath := filepath.Join(h.TempDir, "worktree-path")
-		require.NoError(t, os.MkdirAll(contextPath, 0o755))
-		h.RunDual("context", "create", "--name", "orphaned", "--path", contextPath)
+		// Create another worktree
+		h.RunDual("create", "orphaned-branch")
 
-		// Delete the path to make it orphaned
-		require.NoError(t, os.RemoveAll(contextPath))
+		// Delete the worktree directory to make it orphaned
+		// (but leave it in the registry)
+		worktreesPath := filepath.Join(filepath.Dir(h.ProjectDir), "worktrees")
+		orphanedPath := filepath.Join(worktreesPath, "orphaned-branch")
+		require.NoError(t, os.RemoveAll(orphanedPath))
 
 		// Run doctor without --fix first
 		stdout, stderr, _ := h.RunDual("doctor")
@@ -212,10 +239,20 @@ func TestDoctorCommand(t *testing.T) {
 				setup: func(h *TestHelper) {
 					h.InitGitRepo()
 					h.CreateGitBranch("main")
-					h.RunDual("init")
+					h.WriteFile("dual.config.yml", `version: 1
+services:
+  api:
+    path: apps/api
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
+`)
 					h.CreateDirectory("apps/api")
-					h.RunDual("service", "add", "api", "--path", "apps/api")
-					h.RunDual("context", "create", "--name", "main")
+					// Create an initial commit (required for git worktree add)
+					h.WriteFile("README.md", "# Test Project")
+					h.RunGitCommand("add", "README.md")
+					h.RunGitCommand("commit", "-m", "Initial commit")
+					h.RunDual("create", "main")
 				},
 				expectedCode: -1, // Special value to accept 0 or 1
 			},
@@ -284,8 +321,23 @@ func TestDoctorWorktreeValidation(t *testing.T) {
 	h.CreateDirectory("apps/api")
 	h.RunDual("service", "add", "api", "--path", "apps/api")
 
+	// Add worktrees configuration
+	h.WriteFile("dual.config.yml", `version: 1
+services:
+  api:
+    path: apps/api
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
+`)
+
+	// Create an initial commit (required for git worktree add)
+	h.WriteFile("README.md", "# Test Project")
+	h.RunGitCommand("add", "README.md")
+	h.RunGitCommand("commit", "-m", "Initial commit")
+
 	// Create context
-	h.RunDual("context", "create", "--name", "main")
+	h.RunDual("create", "main")
 
 	// Create a worktree
 	worktreePath := h.CreateGitWorktree("feature-branch", "worktree-feature")
@@ -364,8 +416,25 @@ func TestDoctorServiceDetection(t *testing.T) {
 	h.RunDual("service", "add", "api", "--path", "apps/api")
 	h.RunDual("service", "add", "web", "--path", "apps/web")
 
+	// Add worktrees configuration
+	h.WriteFile("dual.config.yml", `version: 1
+services:
+  api:
+    path: apps/api
+  web:
+    path: apps/web
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
+`)
+
+	// Create an initial commit (required for git worktree add)
+	h.WriteFile("README.md", "# Test Project")
+	h.RunGitCommand("add", "README.md")
+	h.RunGitCommand("commit", "-m", "Initial commit")
+
 	// Create context
-	h.RunDual("context", "create", "--name", "main")
+	h.RunDual("create", "main")
 
 	// Run doctor from within a service directory
 	stdout, stderr, _ := h.RunDualInDir(filepath.Join(h.ProjectDir, "apps/api"), "doctor")

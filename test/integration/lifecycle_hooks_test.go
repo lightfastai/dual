@@ -40,7 +40,7 @@ func TestEnvRemappingWithDualCreate(t *testing.T) {
 
 	// Step 4: Create main context
 	t.Log("Step 4: Create main context")
-	stdout, stderr, exitCode := h.RunDual("context", "create", "main")
+	stdout, stderr, exitCode := h.RunDual("create", "main")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 
 	// Step 5: Create worktree using dual create (creates new context)
@@ -142,7 +142,7 @@ func TestEnvRemappingRegeneration(t *testing.T) {
 	h.RunGitCommand("commit", "-m", "Add dual config")
 
 	// Create context
-	h.RunDual("context", "create", "main")
+	h.RunDual("create", "main")
 
 	// Create worktree
 	stdout, stderr, exitCode := h.RunDual("create", "feature-regen")
@@ -203,7 +203,7 @@ func TestEnvRemapCommand(t *testing.T) {
 	h.RunGitCommand("add", ".")
 	h.RunGitCommand("commit", "-m", "Add dual config")
 
-	h.RunDual("context", "create", "main")
+	h.RunDual("create", "main")
 
 	stdout, stderr, exitCode := h.RunDual("create", "feature-remap")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
@@ -268,7 +268,7 @@ func TestEnvRemappingCleanup(t *testing.T) {
 	h.RunGitCommand("add", ".")
 	h.RunGitCommand("commit", "-m", "Add dual config")
 
-	h.RunDual("context", "create", "main")
+	h.RunDual("create", "main")
 
 	stdout, stderr, exitCode := h.RunDual("create", "feature-cleanup")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
@@ -350,7 +350,7 @@ hooks:
 	h.RunGitCommand("add", ".")
 	h.RunGitCommand("commit", "-m", "Add dual config with hooks")
 
-	h.RunDual("context", "create", "main")
+	h.RunDual("create", "main")
 
 	// Create worktree
 	t.Log("Create worktree with hooks")
@@ -412,7 +412,7 @@ func TestEnvRemappingEmptyOverrides(t *testing.T) {
 	h.RunGitCommand("add", ".")
 	h.RunGitCommand("commit", "-m", "Add dual config")
 
-	h.RunDual("context", "create", "main")
+	h.RunDual("create", "main")
 	// NOTE: NOT setting any env overrides
 
 	stdout, stderr, exitCode := h.RunDual("create", "feature-empty")
@@ -451,7 +451,7 @@ func TestEnvRemappingServiceSpecificOnly(t *testing.T) {
 	h.RunGitCommand("add", ".")
 	h.RunGitCommand("commit", "-m", "Add dual config")
 
-	h.RunDual("context", "create", "main")
+	h.RunDual("create", "main")
 
 	stdout, stderr, exitCode := h.RunDual("create", "feature-service-only")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
@@ -499,7 +499,7 @@ func TestEnvRemappingQuotedValues(t *testing.T) {
 	h.RunGitCommand("add", ".")
 	h.RunGitCommand("commit", "-m", "Add dual config")
 
-	h.RunDual("context", "create", "main")
+	h.RunDual("create", "main")
 
 	stdout, stderr, exitCode := h.RunDual("create", "feature-quoted")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
@@ -549,7 +549,7 @@ func TestEnvRemappingWithPORT(t *testing.T) {
 	h.RunGitCommand("add", ".")
 	h.RunGitCommand("commit", "-m", "Add dual config")
 
-	h.RunDual("context", "create", "main")
+	h.RunDual("create", "main")
 
 	stdout, stderr, exitCode := h.RunDual("create", "feature-port")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)

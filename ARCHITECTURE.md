@@ -63,7 +63,7 @@ Manages `dual.config.yml` file:
 
 ### 3. Registry Manager (`internal/registry/`)
 
-Manages `$PROJECT_ROOT/.dual/registry.json`:
+Manages `$PROJECT_ROOT/.dual/.local/registry.json`:
 - Project-local state (not global like v0.2.x)
 - Structure: projects → contexts (name → path, created timestamp)
 - All worktrees of a repository share the parent repo's registry via `GetProjectIdentifier()` normalization
@@ -749,7 +749,7 @@ func DetectService(cfg *config.Config, projectRoot string) (string, error) {
 
 ### Registry Structure
 
-The registry is **project-local** at `$PROJECT_ROOT/.dual/registry.json`:
+The registry is **project-local** at `$PROJECT_ROOT/.dual/.local/registry.json`:
 
 ```json
 {
@@ -814,7 +814,7 @@ func (r *Registry) Close() error {
 **Lock behavior**:
 - Lock acquired in `LoadRegistry()` and held until `Close()`
 - Timeout: 5 seconds (prevents deadlocks)
-- Lock file: `$PROJECT_ROOT/.dual/registry.json.lock`
+- Lock file: `$PROJECT_ROOT/.dual/.local/registry.json.lock`
 - Must call `Close()` to release lock (use `defer reg.Close()`)
 
 ### Thread Safety
@@ -986,7 +986,7 @@ Registry uses **two-level locking** for maximum safety:
 - Prevents concurrent access across processes
 - Lock acquired in `LoadRegistry()`, released in `Close()`
 - Timeout: 5 seconds (returns `ErrLockTimeout` if exceeded)
-- Lock file: `$PROJECT_ROOT/.dual/registry.json.lock`
+- Lock file: `$PROJECT_ROOT/.dual/.local/registry.json.lock`
 
 **Level 2: In-Memory Mutex** (`sync.RWMutex`)
 - Prevents concurrent access within a process
@@ -1117,14 +1117,14 @@ Hint: Run 'chmod +x .dual/hooks/setup-database.sh'
 
 ### Why Project-Local Registry?
 
-**Alternative**: Store registry in user home directory (`~/.dual/registry.json`)
+**Alternative**: Store registry in user home directory (`~/.dual/.local/registry.json`)
 
 **Problem**:
 - Git worktrees share same project root
 - Multiple clones have separate configs
 - Team collaboration difficult
 
-**Solution**: `$PROJECT_ROOT/.dual/registry.json` in project directory
+**Solution**: `$PROJECT_ROOT/.dual/.local/registry.json` in project directory
 
 **Benefits**:
 - Single source of truth per project

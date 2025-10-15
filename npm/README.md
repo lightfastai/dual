@@ -277,7 +277,7 @@ Version 0.3.0 introduces breaking changes. The CLI now focuses on worktree lifec
 - `dual create <branch>` - Create worktrees with lifecycle hooks
 - `dual delete <context>` - Delete worktrees with cleanup hooks
 - Hook system for custom environment setup
-- Project-local registry (moved from `~/.dual/registry.json` to `$PROJECT_ROOT/.dual/registry.json`)
+- Project-local registry (moved from `~/.dual/.local/registry.json` to `$PROJECT_ROOT/.dual/.local/registry.json`)
 
 ### Migration Steps
 
@@ -326,10 +326,10 @@ Version 0.3.0 introduces breaking changes. The CLI now focuses on worktree lifec
 
 5. **Recreate existing contexts:**
 
-   The registry has moved from `~/.dual/registry.json` to `$PROJECT_ROOT/.dual/registry.json`. Existing contexts need to be recreated:
+   The registry has moved from `~/.dual/.local/registry.json` to `$PROJECT_ROOT/.dual/.local/registry.json`. Existing contexts need to be recreated:
    ```bash
    # Delete old contexts (if any)
-   rm -rf ~/.dual/registry.json
+   rm -rf ~/.dual/.local/registry.json
 
    # Recreate worktrees with new system
    npx dual create feature-x

@@ -13,7 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 The tool operates primarily in **Management Mode** with direct subcommands:
 - `dual init` - Initialize dual configuration
 - `dual service add/list/remove` - Manage service definitions
-- `dual context create/list/delete` - Manage contexts (deprecated in favor of create/delete)
+- `dual list` - List all contexts/worktrees
 - `dual create <branch>` - Create a new worktree with lifecycle hooks
 - `dual delete <context>` - Delete a worktree with cleanup hooks
 - `dual doctor` - Diagnose configuration and registry health
@@ -31,7 +31,7 @@ The main entry point (cmd/dual/main.go) uses cobra for command routing and execu
 - Thread-safe file I/O with atomic writes
 
 **Registry Layer** (`internal/registry/`)
-- Project-local state in `$PROJECT_ROOT/.dual/registry.json` (per-project, not committed)
+- Project-local state in `$PROJECT_ROOT/.dual/.local/registry.json` (per-project, not committed)
 - Structure: projects → contexts (name → path, created timestamp)
 - All worktrees of a repository share the parent repo's registry via `GetProjectIdentifier()` normalization
 - Thread-safe with sync.RWMutex for concurrent dual instances
@@ -251,7 +251,7 @@ Detectors accept function parameters for git commands, getwd, evalSymlinks to en
 - Test files excluded from most linters (see .golangci.yml)
 
 ### Registry Location and Sharing
-The registry is **project-local** at `$PROJECT_ROOT/.dual/registry.json`, not global. This means:
+The registry is **project-local** at `$PROJECT_ROOT/.dual/.local/registry.json`, not global. This means:
 - Each project has its own registry file
 - All worktrees of a repository share the parent repo's registry (normalized via `GetProjectIdentifier()`)
 - The registry should be added to `.gitignore` to avoid committing context mappings
@@ -321,8 +321,8 @@ Use `gh issue create` or `gh issue edit` to manage labels via CLI.
 ## File Locations
 
 ### User Data
-- Registry: `$PROJECT_ROOT/.dual/registry.json` (project-local, should not be committed - add to .gitignore)
-- Registry lock: `$PROJECT_ROOT/.dual/registry.json.lock` (temporary file during operations)
+- Registry: `$PROJECT_ROOT/.dual/.local/registry.json` (project-local, should not be committed - add to .gitignore)
+- Registry lock: `$PROJECT_ROOT/.dual/.local/registry.json.lock` (temporary file during operations)
 - Config: `dual.config.yml` (project root, can be committed)
 - Hooks: `$PROJECT_ROOT/.dual/hooks/` (project-local, can be committed)
 - Context override: `.dual-context` (worktree/clone specific)
@@ -364,7 +364,7 @@ All jobs must pass for successful CI run (test-summary job).
 2. Calculate ports based on context name, hash, sequential assignment, etc.
 3. Write PORT to `.env` file or use your preferred method
 
-**Registry Migration**: The registry has moved from `~/.dual/registry.json` to `$PROJECT_ROOT/.dual/registry.json`:
+**Registry Migration**: The registry has moved from `~/.dual/registry.json` to `$PROJECT_ROOT/.dual/.local/registry.json`:
 - Old global registry is no longer used
 - Contexts must be recreated with `dual create`
 - Each project now has its own isolated registry

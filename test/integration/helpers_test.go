@@ -264,7 +264,7 @@ func (h *TestHelper) ReadRegistryJSON() string {
 	h.t.Helper()
 
 	// Registry is now project-local, not in home directory
-	registryPath := filepath.Join(h.ProjectDir, ".dual", "registry.json")
+	registryPath := filepath.Join(h.ProjectDir, ".dual", ".local", "registry.json")
 	content, err := os.ReadFile(registryPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -281,7 +281,7 @@ func (h *TestHelper) RegistryExists() bool {
 	h.t.Helper()
 
 	// Registry is now project-local, not in home directory
-	registryPath := filepath.Join(h.ProjectDir, ".dual", "registry.json")
+	registryPath := filepath.Join(h.ProjectDir, ".dual", ".local", "registry.json")
 	_, err := os.Stat(registryPath)
 	return err == nil
 }

@@ -104,8 +104,7 @@ EOF
 dual doctor
 
 # 10. Add registry to .gitignore
-echo "/.dual/registry.json" >> .gitignore
-echo "/.dual/registry.json.lock" >> .gitignore
+echo "/.dual/.local/" >> .gitignore
 ```
 
 ### Create Your First Worktree
@@ -1028,7 +1027,7 @@ dual context list
 
 # Clean up manually
 git worktree prune
-# Then manually edit .dual/registry.json to remove the context
+# Then manually edit .dual/.local/registry.json to remove the context
 ```
 
 ---
@@ -1602,8 +1601,7 @@ hooks:
 
 ```bash
 # .gitignore
-/.dual/registry.json
-/.dual/registry.json.lock
+/.dual/.local/
 ```
 
 #### Commit Hook Scripts
@@ -1934,7 +1932,7 @@ Assign ports sequentially based on existing contexts:
 
 set -e
 
-REGISTRY_FILE="$DUAL_PROJECT_ROOT/.dual/registry.json"
+REGISTRY_FILE="$DUAL_PROJECT_ROOT/.dual/.local/registry.json"
 PORT_FILE="$DUAL_PROJECT_ROOT/.dual/next-port.txt"
 
 # Initialize if doesn't exist
@@ -2217,7 +2215,7 @@ dual context list
 
 ```bash
 # Backup corrupted registry
-cp .dual/registry.json .dual/registry.json.backup
+cp .dual/.local/registry.json .dual/.local/registry.json.backup
 
 # dual will auto-create a new empty registry
 # You'll need to recreate contexts
@@ -2306,7 +2304,7 @@ If you're upgrading from v0.2.x, note these key changes:
 - **Command wrapper mode**: `dual <command>` no longer injects PORT
 - **Port commands**: `dual port` and `dual ports` removed
 - **`dual context create`**: Use `dual create <branch>` instead
-- **Global registry**: Now project-local at `.dual/registry.json`
+- **Global registry**: Now project-local at `.dual/.local/registry.json`
 
 ### New Features
 

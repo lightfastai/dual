@@ -44,7 +44,7 @@ func RegistryCorrupted(path string, cause error) *Error {
 		WithContext("File", path).
 		WithFixes(
 			"The registry will be reset automatically",
-			"You may need to recreate contexts with 'dual context create'",
+			"You may need to recreate contexts with 'dual create'",
 		)
 	if cause != nil {
 		err = err.WithCause(cause)
@@ -61,14 +61,13 @@ func ContextNotFound(contextName string, projectRoot string) *Error {
 	// Add specific fixes based on the context
 	if contextName == "default" {
 		err = err.WithFixes(
-			"Run: dual context create default",
-			"Or create a context for your current branch",
+			"Run: dual create default",
+			"Or create a worktree for your current branch",
 		)
 	} else {
 		err = err.WithFixes(
-			fmt.Sprintf("Run: dual context create %s", contextName),
-			"Or: dual context create (auto-detects context name)",
-			"View all contexts: dual context list",
+			fmt.Sprintf("Run: dual create %s", contextName),
+			"View all contexts: dual list",
 		)
 	}
 

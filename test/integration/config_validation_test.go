@@ -174,9 +174,8 @@ func TestConfigValidationEmptyServices(t *testing.T) {
 	h.AssertFileContains("dual.config.yml", "version: 1")
 	h.AssertFileContains("dual.config.yml", "services: {}")
 
-	// Context creation should work with empty services
-	stdout, stderr, exitCode = h.RunDual("context", "create", "main")
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
+	// Note: Context creation requires worktrees configuration, which is not set up in this test.
+	// This test only validates that empty services config is valid, not that worktrees can be created.
 }
 
 // TestConfigValidationMalformedYAML tests handling of malformed YAML
@@ -266,15 +265,27 @@ func TestContextValidationInvalidNames(t *testing.T) {
 	defer h.RestoreHome()
 
 	h.InitGitRepo()
-	h.CreateGitBranch("main")
-	h.RunDual("init")
+	h.WriteFile("dual.config.yml", `version: 1
+services:
+  api:
+    path: services/api
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
+`)
+	h.CreateDirectory("services/api")
+
+	// Create an initial commit (required for git worktree add)
+	h.WriteFile("README.md", "# Test Project")
+	h.RunGitCommand("add", "README.md")
+	h.RunGitCommand("commit", "-m", "Initial commit")
 
 	// Test context with slashes (should work - git branches can have slashes)
-	stdout, stderr, exitCode := h.RunDual("context", "create", "feature/test")
+	stdout, stderr, exitCode := h.RunDual("create", "feature/test")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 
 	// Test context with hyphens (should work)
-	stdout, stderr, exitCode = h.RunDual("context", "create", "test-context")
+	stdout, stderr, exitCode = h.RunDual("create", "test-context")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 }
 

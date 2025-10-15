@@ -1,8 +1,6 @@
 package integration
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 )
 
@@ -25,40 +23,42 @@ func TestMultiWorktreeSetup(t *testing.T) {
 	h.RunDual("service", "add", "web", "--path", "apps/web")
 	h.RunDual("service", "add", "api", "--path", "apps/api")
 
+	// Add worktrees configuration
+	h.WriteFile("dual.config.yml", `version: 1
+services:
+  web:
+    path: apps/web
+  api:
+    path: apps/api
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
+`)
+
 	// Commit the config and service directories so they appear in worktrees
 	h.WriteFile("apps/web/.gitkeep", "")
 	h.WriteFile("apps/api/.gitkeep", "")
 	h.RunGitCommand("add", ".")
 	h.RunGitCommand("commit", "-m", "Add dual config and service directories")
 
-	// Create context for main branch
-	t.Log("Step 2: Create context for main branch")
-	stdout, stderr, exitCode := h.RunDual("context", "create", "main")
+	// Create worktree for feature branch
+	t.Log("Step 2: Create worktree for feature branch")
+	stdout, stderr, exitCode := h.RunDual("create", "feature-new")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "Created context \"main\"")
+	h.AssertOutputContains(stdout+stderr, "Worktree created successfully")
 
-	// Create a worktree for feature branch
-	t.Log("Step 3: Create worktree for feature branch")
-	worktreePath := h.CreateGitWorktree("feature/new-feature", "worktree-feature")
-
-	// Verify the worktree has the same config file
-	worktreeConfigPath := filepath.Join(worktreePath, "dual.config.yml")
-	if _, err := os.Stat(worktreeConfigPath); err != nil {
-		t.Fatalf("config file not found in worktree: %v", err)
-	}
-
-	// Create context for feature branch from the MAIN repo (not worktree)
-	// This ensures the context is stored in the parent repo's registry,
-	// which all worktrees will share via GetProjectIdentifier normalization
-	t.Log("Step 4: Create context for feature branch from main repo")
-	stdout, stderr, exitCode = h.RunDual("context", "create", "feature/new-feature")
+	// Create another worktree for different feature
+	t.Log("Step 3: Create another worktree for another feature")
+	stdout, stderr, exitCode = h.RunDual("create", "feature-other")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "Created context \"feature/new-feature\"")
+	h.AssertOutputContains(stdout+stderr, "Worktree created successfully")
 
-	// Verify contexts exist in registry
-	registryContent := h.ReadRegistryJSON()
-	h.AssertOutputContains(registryContent, "main")
-	h.AssertOutputContains(registryContent, "feature/new-feature")
+	// Verify contexts exist in registry using dual list
+	t.Log("Step 4: Verify contexts via dual list")
+	stdout, stderr, exitCode = h.RunDual("list")
+	h.AssertExitCode(exitCode, 0, stdout+stderr)
+	h.AssertOutputContains(stdout, "feature-new")
+	h.AssertOutputContains(stdout, "feature-other")
 }
 
 // TestWorktreeContextIsolation tests that contexts are properly isolated across worktrees
@@ -75,6 +75,16 @@ func TestWorktreeContextIsolation(t *testing.T) {
 	h.CreateDirectory("apps/web")
 	h.RunDual("service", "add", "web", "--path", "apps/web")
 
+	// Add worktrees configuration
+	h.WriteFile("dual.config.yml", `version: 1
+services:
+  web:
+    path: apps/web
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
+`)
+
 	// Commit config and service directories
 	h.WriteFile("apps/web/.gitkeep", "")
 	h.RunGitCommand("add", ".")
@@ -83,18 +93,14 @@ func TestWorktreeContextIsolation(t *testing.T) {
 	// Create multiple worktrees with different contexts
 	t.Log("Creating multiple worktrees")
 
-	// Main worktree context
-	h.RunDual("context", "create", "main")
-
 	// Feature A worktree
-	worktreeA := h.CreateGitWorktree("feature/a", "worktree-a")
-	// Create context from main repo so it's stored in the shared registry
-	h.RunDual("context", "create", "feature/a")
+	h.RunDual("create", "feature-a")
 
 	// Feature B worktree
-	worktreeB := h.CreateGitWorktree("feature/b", "worktree-b")
-	// Create context from main repo so it's stored in the shared registry
-	h.RunDual("context", "create", "feature/b")
+	h.RunDual("create", "feature-b")
+
+	// Feature C worktree
+	h.RunDual("create", "feature-c")
 
 	// Verify each worktree has its own context
 	t.Log("Verifying context isolation")
@@ -106,22 +112,16 @@ func TestWorktreeContextIsolation(t *testing.T) {
 	}
 
 	// Registry should contain all three contexts
-	h.AssertOutputContains(registryContent, "main")
-	h.AssertOutputContains(registryContent, "feature/a")
-	h.AssertOutputContains(registryContent, "feature/b")
+	h.AssertOutputContains(registryContent, "feature-a")
+	h.AssertOutputContains(registryContent, "feature-b")
+	h.AssertOutputContains(registryContent, "feature-c")
 
-	// Verify context detection works in each worktree
-	stdout, stderr, exitCode := h.RunDualInDir(h.ProjectDir, "context")
+	// Verify contexts via dual list
+	stdout, stderr, exitCode := h.RunDual("list")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "Context: main")
-
-	stdout, stderr, exitCode = h.RunDualInDir(worktreeA, "context")
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "Context: feature/a")
-
-	stdout, stderr, exitCode = h.RunDualInDir(worktreeB, "context")
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "Context: feature/b")
+	h.AssertOutputContains(stdout, "feature-a")
+	h.AssertOutputContains(stdout, "feature-b")
+	h.AssertOutputContains(stdout, "feature-c")
 }
 
 // TestWorktreeWithDualContextFile tests using .dual-context file in worktrees
@@ -137,26 +137,30 @@ func TestWorktreeWithDualContextFile(t *testing.T) {
 	h.CreateDirectory("apps/web")
 	h.RunDual("service", "add", "web", "--path", "apps/web")
 
+	// Add worktrees configuration
+	h.WriteFile("dual.config.yml", `version: 1
+services:
+  web:
+    path: apps/web
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
+`)
+
 	// Commit config and service directories
 	h.WriteFile("apps/web/.gitkeep", "")
 	h.RunGitCommand("add", ".")
 	h.RunGitCommand("commit", "-m", "Add dual config and service directories")
 
-	// Create context for main
-	h.RunDual("context", "create", "main")
+	// Create worktree contexts
+	h.RunDual("create", "feature-test")
+	h.RunDual("create", "feature-other")
 
-	// Create a worktree
-	worktreePath := h.CreateGitWorktree("feature/test", "worktree-test")
-
-	// Create a context for the feature/test branch from main repo
-	// (which git will auto-detect when running from the worktree)
-	// Note: Git branch detection has priority over .dual-context file
-	h.RunDual("context", "create", "feature/test")
-
-	// Verify context detection from worktree
-	stdout, stderr, exitCode := h.RunDualInDir(worktreePath, "context")
+	// Verify contexts exist in registry
+	stdout, stderr, exitCode := h.RunDual("list")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "Context: feature/test")
+	h.AssertOutputContains(stdout, "feature-test")
+	h.AssertOutputContains(stdout, "feature-other")
 }
 
 // TestWorktreeServiceDetection tests that service detection works correctly in worktrees
@@ -175,28 +179,33 @@ func TestWorktreeServiceDetection(t *testing.T) {
 	h.RunDual("service", "add", "web", "--path", "apps/frontend/web")
 	h.RunDual("service", "add", "api", "--path", "apps/backend/api")
 
+	// Add worktrees configuration
+	h.WriteFile("dual.config.yml", `version: 1
+services:
+  web:
+    path: apps/frontend/web
+  api:
+    path: apps/backend/api
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
+`)
+
 	// Commit config and service directories
 	h.WriteFile("apps/frontend/web/.gitkeep", "")
 	h.WriteFile("apps/backend/api/.gitkeep", "")
 	h.RunGitCommand("add", ".")
 	h.RunGitCommand("commit", "-m", "Add dual config and service directories")
 
-	// Create contexts
-	h.RunDual("context", "create", "main")
+	// Create worktree contexts
+	t.Log("Creating worktrees for testing")
+	h.RunDual("create", "feature-test")
+	h.RunDual("create", "feature-api")
 
-	// Create worktree
-	worktreePath := h.CreateGitWorktree("feature/test", "worktree-test")
-	// Create context from main repo so it's stored in the shared registry
-	h.RunDual("context", "create", "feature/test")
-
-	// Verify context detection works in both worktrees
-	t.Log("Testing context detection in main worktree")
-	stdout, stderr, exitCode := h.RunDualInDir(h.ProjectDir, "context")
+	// Verify contexts exist
+	t.Log("Verifying contexts via dual list")
+	stdout, stderr, exitCode := h.RunDual("list")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "Context: main")
-
-	t.Log("Testing context detection in feature worktree")
-	stdout, stderr, exitCode = h.RunDualInDir(worktreePath, "context")
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "Context: feature/test")
+	h.AssertOutputContains(stdout, "feature-test")
+	h.AssertOutputContains(stdout, "feature-api")
 }

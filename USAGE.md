@@ -63,7 +63,7 @@ In v0.3.0, `dual` operates in **Management Mode** with direct subcommands:
 - Team notifications
 - Any custom automation
 
-**Project-Local Registry**: Registry moved from `~/.dual/registry.json` to `$PROJECT_ROOT/.dual/registry.json` for per-project isolation.
+**Project-Local Registry**: Registry moved from `~/.dual/registry.json` to `$PROJECT_ROOT/.dual/.local/registry.json` for per-project isolation.
 
 **Simplified Commands**: Focused on worktree lifecycle management.
 
@@ -928,7 +928,7 @@ Checking dual configuration...
   - worker (apps/worker)
 ✓ Worktrees configuration: ../worktrees
 ✓ Hooks configuration: 6 hooks configured
-✓ Registry file found: /Users/dev/Code/myproject/.dual/registry.json
+✓ Registry file found: /Users/dev/Code/myproject/.dual/.local/registry.json
 ✓ Registry is readable and valid
 ✓ Contexts: 3 registered
   - main (main repository)
@@ -959,7 +959,7 @@ Checking dual configuration...
   Hint: Create .dual/hooks/setup-database.sh and make it executable
 ✗ Hook script not executable: cleanup-database.sh
   Hint: Run 'chmod +x .dual/hooks/cleanup-database.sh'
-✓ Registry file found: /Users/dev/Code/myproject/.dual/registry.json
+✓ Registry file found: /Users/dev/Code/myproject/.dual/.local/registry.json
 ✗ Registry corruption: context "feature-old" references non-existent worktree
   Hint: Run 'dual context list' and manually edit registry if needed
 
@@ -1085,7 +1085,7 @@ The registry tracks all contexts (main repository and worktrees) for a project.
 
 ### Registry Location
 
-**v0.3.0**: `$PROJECT_ROOT/.dual/registry.json` (project-local)
+**v0.3.0**: `$PROJECT_ROOT/.dual/.local/registry.json` (project-local)
 
 **Important changes from v0.2.x**:
 - No longer stored in `~/.dual/registry.json` (global)
@@ -1127,8 +1127,7 @@ The registry tracks all contexts (main repository and worktrees) for a project.
 ### Add to .gitignore
 
 ```bash
-echo "/.dual/registry.json" >> .gitignore
-echo "/.dual/registry.json.lock" >> .gitignore
+echo "/.dual/.local/" >> .gitignore
 ```
 
 The registry contains local paths that shouldn't be committed.
@@ -1180,7 +1179,7 @@ Output example:
 [dual] Worktrees config: {../worktrees {branch}}
 [dual] Hooks config: map[postWorktreeCreate:[setup-database.sh setup-environment.sh]]
 [dual] Project root: /Users/dev/Code/myproject
-[dual] Loading registry from: /Users/dev/Code/myproject/.dual/registry.json
+[dual] Loading registry from: /Users/dev/Code/myproject/.dual/.local/registry.json
 [dual] Registry loaded: 2 contexts
 [dual] Creating worktree for: feature-x
 [dual] Naming pattern: {branch}
@@ -1275,8 +1274,7 @@ chmod +x .dual/hooks/setup-environment.sh
 dual doctor
 
 # 7. Add registry to .gitignore
-echo "/.dual/registry.json" >> .gitignore
-echo "/.dual/registry.json.lock" >> .gitignore
+echo "/.dual/.local/" >> .gitignore
 ```
 
 ### Creating a Feature Branch
@@ -1470,7 +1468,7 @@ If you're upgrading from v0.2.x, see the migration guide:
 - **`dual sync` command**: Removed
 - **`dual env` commands**: Environment variable management removed
 - **`dual context create`**: Deprecated in favor of `dual create <branch>`
-- **Global registry**: Moved from `~/.dual/registry.json` to `$PROJECT_ROOT/.dual/registry.json`
+- **Global registry**: Moved from `~/.dual/registry.json` to `$PROJECT_ROOT/.dual/.local/registry.json`
 
 ### New Features
 
@@ -1484,6 +1482,6 @@ If you're upgrading from v0.2.x, see the migration guide:
 2. **Create hook scripts**: Implement port assignment, database setup, etc. in hooks
 3. **Recreate contexts**: Old contexts in global registry are not migrated automatically
 4. **Update workflows**: Replace `dual <command>` with hook-based environment setup
-5. **Add registry to .gitignore**: `/.dual/registry.json` and `/.dual/registry.json.lock`
+5. **Add registry to .gitignore**: `/.dual/.local/`
 
 See [MIGRATION.md](MIGRATION.md) for detailed migration instructions.
