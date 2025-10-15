@@ -1,5 +1,11 @@
 # @lightfastai/dual
 
+## 0.2.2
+
+### Patch Changes
+
+- 35ba33e: Test automated release workflow after consolidation refactoring. This patch validates that the new path-based trigger system correctly automates tag creation and multi-channel publishing without manual intervention.
+
 ## 0.2.1
 
 ### Patch Changes

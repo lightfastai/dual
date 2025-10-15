@@ -1,6 +1,6 @@
 {
   "name": "@lightfastai/dual",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "General-purpose port management for multi-context development",
   "keywords": [
     "port",
