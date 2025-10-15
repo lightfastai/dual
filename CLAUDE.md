@@ -10,13 +10,35 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Command Flow
 
-The tool operates primarily in **Management Mode** with direct subcommands:
+The tool operates with the following command structure:
+
+**Core Commands:**
 - `dual init` - Initialize dual configuration
-- `dual service add/list/remove` - Manage service definitions
-- `dual list` - List all contexts/worktrees
 - `dual create <branch>` - Create a new worktree with lifecycle hooks
 - `dual delete <context>` - Delete a worktree with cleanup hooks
+- `dual list` - List all contexts/worktrees (alias: `dual context list`)
+
+**Service Management:**
+- `dual service add/list/remove` - Manage service definitions
+
+**Environment Management:**
+- `dual env` - Manage context-specific environment variables
+  - `dual env show` - Display environment summary and overrides
+  - `dual env set <key> <value>` - Set context-specific override
+  - `dual env unset <key>` - Remove context-specific override
+  - `dual env export` - Export merged environment to stdout
+  - `dual env check` - Validate environment configuration
+  - `dual env diff <ctx1> <ctx2>` - Compare environments between contexts
+  - `dual env remap` - Regenerate service-specific .env files
+
+**Execution Commands:**
+- `dual run <command>` - Run command with full environment injection
+- `dual open [service]` - Open service directory in VS Code
+- `dual sync` - Sync environment files for services
+
+**Utilities:**
 - `dual doctor` - Diagnose configuration and registry health
+- `dual completion [bash|zsh|fish]` - Generate shell completions
 
 The main entry point (cmd/dual/main.go) uses cobra for command routing and execution.
 
@@ -55,6 +77,15 @@ The main entry point (cmd/dual/main.go) uses cobra for command routing and execu
 - Resolves symlinks for consistency across worktrees
 - Uses longest path match for nested service structures
 - Returns `ErrServiceNotDetected` if no match found
+
+**Environment Layer** (`internal/env/`)
+- Manages layered environment variables with three priority levels:
+  1. Base environment (.env.base if configured) - lowest priority
+  2. Service-specific environment (<service-path>/.env) - medium priority
+  3. Context-specific overrides (.dual/.local/service/<service>/.env) - highest priority
+- Supports global and service-specific overrides via `dual env set/unset`
+- Generates service env files automatically when overrides change
+- Used by `dual run` to inject full environment into command execution
 
 ### Worktree Management Commands
 
@@ -207,6 +238,12 @@ go test -v -run TestCreateWorktree ./test/integration/...
 
 # Run tests with coverage
 go test -cover ./...
+
+# Run tests with verbose output
+go test -v ./...
+
+# Run tests in parallel (default is GOMAXPROCS)
+go test -parallel 4 ./...
 ```
 
 ### Linting
@@ -219,6 +256,9 @@ golangci-lint run --fix
 
 # Specific linters (configured in .golangci.yml)
 golangci-lint run --enable-only=gosec
+
+# Run with verbose output to see what's being checked
+golangci-lint run -v
 ```
 
 ### Git Configuration for Integration Tests
@@ -226,6 +266,41 @@ Integration tests require git user config:
 ```bash
 git config --global user.email "test@example.com"
 git config --global user.name "Test User"
+```
+
+### Common Development Workflows
+
+**Adding a New Command:**
+1. Create new file in `cmd/dual/` (e.g., `newcommand.go`)
+2. Define cobra.Command with Use, Short, Long, RunE fields
+3. Register in `init()` function with `rootCmd.AddCommand()`
+4. Add shell completion if needed (see completion.go for examples)
+5. Write integration test in `test/integration/`
+
+**Testing Environment Features:**
+```bash
+# Test environment layering
+dual env set DATABASE_URL "test://localhost"
+dual env show --values
+dual run env | grep DATABASE_URL
+
+# Test service-specific overrides
+dual env set --service api PORT 5000
+dual env set --service web PORT 3000
+dual run --service api echo $PORT  # outputs: 5000
+dual run --service web echo $PORT  # outputs: 3000
+```
+
+**Debugging Registry Issues:**
+```bash
+# Check registry state
+cat .dual/.local/registry.json | jq .
+
+# Validate registry health
+dual doctor
+
+# Force regenerate env files
+dual env remap
 ```
 
 ## Development Patterns
@@ -244,6 +319,13 @@ git config --global user.name "Test User"
 
 ### Dependency Injection in Tests
 Detectors accept function parameters for git commands, getwd, evalSymlinks to enable mocking in tests. See internal/service/detector.go.
+
+### Shell Completions
+The CLI provides dynamic shell completions for better developer experience:
+- **Service names**: Auto-completes from `dual.config.yml` services
+- **Context names**: Auto-completes from registry contexts
+- **Command flags**: All flags have completion support
+- Setup: `dual completion [bash|zsh|fish]`
 
 ### Security Notes
 - Commands executed via exec.Command are intentional (gosec G204 suppressed)
@@ -341,6 +423,8 @@ test/integration/  End-to-end workflow tests
 
 ## CI/CD
 
+### Testing Workflow
+
 The project uses GitHub Actions (.github/workflows/test.yml):
 - Unit tests with race detector and coverage
 - Integration tests with 10m timeout
@@ -349,6 +433,27 @@ The project uses GitHub Actions (.github/workflows/test.yml):
 
 All jobs must pass for successful CI run (test-summary job).
 
+### Release Process
+
+Releases are automated using changesets and GitHub Actions (.github/workflows/release.yml):
+
+1. **Version Updates**: Use changesets to manage version bumps
+   ```bash
+   npx changeset add     # Add a new changeset for your changes
+   npx changeset version # Update version (done automatically by CI)
+   ```
+
+2. **Release Channels**: When a version commit is pushed to main:
+   - GitHub Release with binaries (via goreleaser)
+   - npm package publication (@lightfastai/dual)
+   - Homebrew tap update (lightfastai/homebrew-tap)
+
+3. **Release Verification**: Automated checks verify:
+   - GitHub release creation
+   - Binary downloads work correctly
+   - npm package is accessible
+   - Homebrew formula is updated
+
 ## Design Principles
 
 1. **Hook-Based Customization**: Core tool manages worktree lifecycle; users implement custom logic (ports, databases, env) in hooks
@@ -356,6 +461,21 @@ All jobs must pass for successful CI run (test-summary job).
 3. **Fail-safe**: Corrupt registry or missing config produce helpful errors, not crashes
 4. **Isolated Contexts**: Each worktree is an independent environment
 5. **Project-Local State**: Registry and hooks are project-specific, not global
+
+## Example Project
+
+The `examples/env-remapping/` directory contains a working example demonstrating:
+- Monorepo setup with multiple services (web, api, shared)
+- Base environment file configuration
+- Service-specific environment files
+- Hook scripts for automated setup
+- Demo script (`demo.sh`) showing full workflow
+
+To explore the example:
+```bash
+cd examples/env-remapping
+./demo.sh  # Run interactive demo
+```
 
 ## Migration Notes (v0.2.2 → v0.3.0)
 
