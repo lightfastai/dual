@@ -1,5 +1,13 @@
 # @lightfastai/dual
 
+## 0.2.1
+
+### Patch Changes
+
+- ecb9c90: Add npm package badges to README
+
+  Display npm version and download count badges in the README to make npm installation more prominent and show package popularity.
+
 ## 0.2.0
 
 ### Minor Changes
