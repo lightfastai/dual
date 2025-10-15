@@ -100,13 +100,28 @@ func (d *Detector) GetParentRepo(worktreeDir string) (string, error) {
 	// Extract the gitdir path
 	gitdir := strings.TrimPrefix(line, "gitdir: ")
 
-	// The parent repo is three directories up from the gitdir
-	// e.g., /home/user/project/.git/worktrees/name → /home/user/project
-	// gitdir: /home/user/project/.git/worktrees/name
-	// parent of gitdir: /home/user/project/.git/worktrees
-	// parent of parent: /home/user/project/.git
-	// parent of that: /home/user/project
-	parentRepo := filepath.Dir(filepath.Dir(filepath.Dir(gitdir)))
+	// Use git rev-parse to find the parent repo's toplevel
+	// The gitdir points to something like: /path/to/repo/.git/worktrees/name
+	// or for submodules: /path/to/parent/.git/modules/submodule/worktrees/name
+	//
+	// The common-dir (parent of gitdir) is the .git directory that knows about the repo
+	// Using git rev-parse --show-toplevel on that location gives us the working tree root
+	commonDir := filepath.Dir(gitdir)
+
+	// Run git command to get the toplevel directory
+	cmd := exec.Command("git", "-C", commonDir, "rev-parse", "--show-toplevel")
+	output, err := cmd.Output()
+	if err != nil {
+		// Fallback to old behavior (three directories up) if git command fails
+		parentRepo := filepath.Dir(filepath.Dir(filepath.Dir(gitdir)))
+		resolved, err := d.evalSymlinks(parentRepo)
+		if err != nil {
+			return parentRepo, nil
+		}
+		return resolved, nil
+	}
+
+	parentRepo := strings.TrimSpace(string(output))
 
 	// Validate the parent repo exists
 	if _, err := d.stat(parentRepo); err != nil {
