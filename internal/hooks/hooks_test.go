@@ -84,9 +84,15 @@ func TestManager_Execute_NoHooks(t *testing.T) {
 	}
 
 	// Should not error when no hooks are defined
-	err := manager.Execute(PostWorktreeCreate, ctx)
+	overrides, err := manager.Execute(PostWorktreeCreate, ctx)
 	if err != nil {
 		t.Errorf("Execute() with no hooks should not error, got: %v", err)
+	}
+	if overrides == nil {
+		t.Error("Execute() returned nil overrides")
+	}
+	if !overrides.IsEmpty() {
+		t.Error("Execute() with no hooks should return empty overrides")
 	}
 }
 
@@ -95,7 +101,7 @@ func TestManager_Execute_InvalidEvent(t *testing.T) {
 	manager := NewManager(cfg, "/test/project")
 	ctx := HookContext{Event: HookEvent("invalid")}
 
-	err := manager.Execute(HookEvent("invalid"), ctx)
+	_, err := manager.Execute(HookEvent("invalid"), ctx)
 	if err == nil {
 		t.Error("Execute() with invalid event should error")
 	}
@@ -170,8 +176,11 @@ exit 0
 		ProjectRoot: tempDir,
 	}
 
-	err := manager.Execute(PostWorktreeCreate, ctx)
+	overrides, err := manager.Execute(PostWorktreeCreate, ctx)
 	if err != nil {
 		t.Errorf("Execute() with valid hook script failed: %v", err)
+	}
+	if overrides == nil {
+		t.Error("Execute() returned nil overrides")
 	}
 }

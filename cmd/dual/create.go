@@ -134,14 +134,9 @@ func runCreate(cmd *cobra.Command, args []string) error {
 
 	fmt.Fprintf(os.Stderr, "[dual] Created context: %s\n", branchName)
 
-	// Generate initial service env files
-	if err := env.GenerateServiceEnvFiles(cfg, reg, projectRoot, projectIdentifier, branchName); err != nil {
-		fmt.Fprintf(os.Stderr, "[dual] Warning: failed to generate service env files: %v\n", err)
-		// Don't fail the command - worktree is created, env files are optional
-	}
-
 	// Prepare hook context
 	hookCtx := hooks.HookContext{
+		Event:       hooks.PostWorktreeCreate,
 		ContextName: branchName,
 		ContextPath: worktreePath,
 		ProjectRoot: projectRoot,
@@ -150,12 +145,42 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	// Create hook manager
 	hookMgr := hooks.NewManager(cfg, projectRoot)
 
-	// Run postWorktreeCreate hooks
-	hookCtx.Event = hooks.PostWorktreeCreate
-	if err := hookMgr.Execute(hooks.PostWorktreeCreate, hookCtx); err != nil {
+	// Run postWorktreeCreate hooks and capture env overrides
+	envOverrides, err := hookMgr.Execute(hooks.PostWorktreeCreate, hookCtx)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "[dual] Warning: postWorktreeCreate hook failed: %v\n", err)
 		fmt.Fprintf(os.Stderr, "[dual] Worktree created but hooks failed. You may need to run setup manually.\n")
 		// Don't rollback - the worktree is created and might be useful
+		envOverrides = hooks.NewEnvOverrides() // Use empty overrides
+	}
+
+	// Apply environment overrides to registry
+	if !envOverrides.IsEmpty() {
+		// Apply global overrides (serviceName = "")
+		for key, value := range envOverrides.Global {
+			if err := reg.SetEnvOverrideForService(projectIdentifier, branchName, key, value, ""); err != nil {
+				fmt.Fprintf(os.Stderr, "[dual] Warning: failed to set global env override %s: %v\n", key, err)
+			}
+		}
+
+		// Apply service-specific overrides
+		for serviceName, serviceVars := range envOverrides.Services {
+			for key, value := range serviceVars {
+				if err := reg.SetEnvOverrideForService(projectIdentifier, branchName, key, value, serviceName); err != nil {
+					fmt.Fprintf(os.Stderr, "[dual] Warning: failed to set service env override %s.%s: %v\n", serviceName, key, err)
+				}
+			}
+		}
+
+		// Save registry with new overrides
+		if err := reg.SaveRegistry(); err != nil {
+			fmt.Fprintf(os.Stderr, "[dual] Warning: failed to save registry with env overrides: %v\n", err)
+		}
+
+		// Generate service env files in the worktree (not parent repo)
+		if err := env.GenerateServiceEnvFiles(cfg, reg, worktreePath, projectIdentifier, branchName); err != nil {
+			fmt.Fprintf(os.Stderr, "[dual] Warning: failed to generate service env files: %v\n", err)
+		}
 	}
 
 	fmt.Fprintf(os.Stderr, "\n[dual] Worktree created successfully!\n")

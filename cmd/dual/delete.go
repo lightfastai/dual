@@ -111,6 +111,7 @@ func runDelete(cmd *cobra.Command, args []string) error {
 
 	// Prepare hook context
 	hookCtx := hooks.HookContext{
+		Event:       hooks.PreWorktreeDelete,
 		ContextName: contextName,
 		ContextPath: ctx.Path,
 		ProjectRoot: projectRoot,
@@ -120,8 +121,9 @@ func runDelete(cmd *cobra.Command, args []string) error {
 	hookMgr := hooks.NewManager(cfg, projectRoot)
 
 	// Run preWorktreeDelete hooks
-	hookCtx.Event = hooks.PreWorktreeDelete
-	if err := hookMgr.Execute(hooks.PreWorktreeDelete, hookCtx); err != nil {
+	// Note: We ignore env overrides for preWorktreeDelete since the worktree is being deleted
+	_, err = hookMgr.Execute(hooks.PreWorktreeDelete, hookCtx)
+	if err != nil {
 		return fmt.Errorf("preWorktreeDelete hook failed: %w\nHint: Fix the hook error or use --force to skip", err)
 	}
 
