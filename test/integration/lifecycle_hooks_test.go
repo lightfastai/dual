@@ -95,7 +95,6 @@ func TestEnvRemappingWithDualCreate(t *testing.T) {
 	h.AssertOutputContains(webContent, "REDIS_URL=redis://localhost:6379")
 	h.AssertOutputContains(webContent, "WEB_TOKEN=web-secret-token")
 	h.AssertOutputNotContains(webContent, "API_KEY=") // Should not have API_KEY
-	h.AssertOutputNotContains(webContent, "PORT=")    // PORT is runtime-only
 
 	// API service: global overrides + API_KEY
 	apiContent := h.ReadFileInDir(worktreePath, apiEnvPath)
@@ -103,7 +102,6 @@ func TestEnvRemappingWithDualCreate(t *testing.T) {
 	h.AssertOutputContains(apiContent, "REDIS_URL=redis://localhost:6379")
 	h.AssertOutputContains(apiContent, "API_KEY=secret-api-key")
 	h.AssertOutputNotContains(apiContent, "WEB_TOKEN=") // Should not have WEB_TOKEN
-	h.AssertOutputNotContains(apiContent, "PORT=")      // PORT is runtime-only
 
 	// Worker service: only global overrides
 	workerContent := h.ReadFileInDir(worktreePath, workerEnvPath)
@@ -111,7 +109,6 @@ func TestEnvRemappingWithDualCreate(t *testing.T) {
 	h.AssertOutputContains(workerContent, "REDIS_URL=redis://localhost:6379")
 	h.AssertOutputNotContains(workerContent, "API_KEY=")    // Should not have API_KEY
 	h.AssertOutputNotContains(workerContent, "WEB_TOKEN=")  // Should not have WEB_TOKEN
-	h.AssertOutputNotContains(workerContent, "PORT=")       // PORT is runtime-only
 
 	// Step 10: Verify header comments are present
 	t.Log("Step 10: Verify header comments")
@@ -527,6 +524,80 @@ func TestEnvRemappingQuotedValues(t *testing.T) {
 	if !strings.Contains(content, `QUOTED_VALUE=`) {
 		t.Errorf("Expected QUOTED_VALUE to be present, got: %s", content)
 	}
+
+	t.Log("Test completed successfully!")
+}
+
+// TestEnvRemappingWithPORT tests that PORT is treated as a normal environment variable
+func TestEnvRemappingWithPORT(t *testing.T) {
+	h := NewTestHelper(t)
+	defer h.RestoreHome()
+
+	// Setup
+	t.Log("Setup: Create worktree with PORT override")
+	h.InitGitRepo()
+	h.CreateGitBranch("main")
+	h.RunDual("init")
+
+	h.CreateDirectory("apps/web")
+	h.CreateDirectory("apps/api")
+	h.RunDual("service", "add", "web", "--path", "apps/web")
+	h.RunDual("service", "add", "api", "--path", "apps/api")
+
+	h.WriteFile("apps/web/.gitkeep", "")
+	h.WriteFile("apps/api/.gitkeep", "")
+	h.RunGitCommand("add", ".")
+	h.RunGitCommand("commit", "-m", "Add dual config")
+
+	h.RunDual("context", "create", "main")
+
+	stdout, stderr, exitCode := h.RunDual("create", "feature-port")
+	h.AssertExitCode(exitCode, 0, stdout+stderr)
+
+	worktreePath := filepath.Join(h.TempDir, "worktrees", "feature-port")
+
+	// Set PORT as a global override (should be treated like any other variable)
+	t.Log("Set PORT as global override")
+	h.RunDualInDir(worktreePath, "env", "set", "PORT", "4000")
+	h.RunDualInDir(worktreePath, "env", "set", "DATABASE_URL", "postgres://localhost/db")
+
+	// Set service-specific PORT for API (should override global)
+	t.Log("Set service-specific PORT for API")
+	h.RunDualInDir(worktreePath, "env", "set", "--service", "api", "PORT", "5000")
+
+	// Verify web service has global PORT
+	t.Log("Verify web service has global PORT")
+	webEnvPath := ".dual/.local/service/web/.env"
+	if !h.FileExistsInDir(worktreePath, webEnvPath) {
+		t.Errorf("Expected %s to exist", webEnvPath)
+	}
+
+	webContent := h.ReadFileInDir(worktreePath, webEnvPath)
+	h.AssertOutputContains(webContent, "PORT=4000")
+	h.AssertOutputContains(webContent, "DATABASE_URL=postgres://localhost/db")
+
+	// Verify API service has service-specific PORT (overrides global)
+	t.Log("Verify API service has service-specific PORT")
+	apiEnvPath := ".dual/.local/service/api/.env"
+	if !h.FileExistsInDir(worktreePath, apiEnvPath) {
+		t.Errorf("Expected %s to exist", apiEnvPath)
+	}
+
+	apiContent := h.ReadFileInDir(worktreePath, apiEnvPath)
+	h.AssertOutputContains(apiContent, "PORT=5000") // Service-specific overrides global
+	h.AssertOutputContains(apiContent, "DATABASE_URL=postgres://localhost/db")
+
+	// Verify unset PORT removes it
+	t.Log("Verify unset PORT removes it from env files")
+	h.RunDualInDir(worktreePath, "env", "unset", "PORT")
+
+	webContent = h.ReadFileInDir(worktreePath, webEnvPath)
+	h.AssertOutputNotContains(webContent, "PORT=4000")
+	h.AssertOutputContains(webContent, "DATABASE_URL=postgres://localhost/db") // Other vars still there
+
+	// API should still have service-specific PORT
+	apiContent = h.ReadFileInDir(worktreePath, apiEnvPath)
+	h.AssertOutputContains(apiContent, "PORT=5000") // Service-specific PORT still there
 
 	t.Log("Test completed successfully!")
 }

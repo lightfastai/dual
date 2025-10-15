@@ -102,11 +102,6 @@ func TestGenerateServiceEnvFiles(t *testing.T) {
 		t.Error("api env file missing global DEBUG")
 	}
 
-	// Check that PORT is NOT written
-	if strings.Contains(apiStr, "PORT=") {
-		t.Error("api env file should not contain PORT")
-	}
-
 	// Verify web service env file
 	webEnvPath := filepath.Join(tempDir, ".dual", ".local", "service", "web", ".env")
 	webContent, err := os.ReadFile(webEnvPath)
@@ -268,7 +263,7 @@ func TestGetRemappedVarsForService(t *testing.T) {
 			},
 		},
 		{
-			name: "PORT is excluded",
+			name: "PORT is treated as normal environment variable",
 			ctx: &registry.Context{
 				EnvOverridesV2: &registry.ContextEnvOverrides{
 					Global: map[string]string{
@@ -279,6 +274,7 @@ func TestGetRemappedVarsForService(t *testing.T) {
 			},
 			serviceName: "api",
 			want: map[string]string{
+				"PORT":  "3000",
 				"DEBUG": "true",
 			},
 		},
@@ -310,11 +306,6 @@ func TestGetRemappedVarsForService(t *testing.T) {
 				if got[k] != v {
 					t.Errorf("var %q: got %q, want %q", k, got[k], v)
 				}
-			}
-
-			// Ensure PORT is never in the result
-			if _, exists := got["PORT"]; exists {
-				t.Error("PORT should never be in remapped vars")
 			}
 		})
 	}

@@ -62,15 +62,8 @@ func getRemappedVarsForService(ctx *registry.Context, serviceName string) (map[s
 	// Get all overrides for this service (includes global + service-specific)
 	overrides := ctx.GetEnvOverrides(serviceName)
 
-	// Exclude PORT - it's always injected at runtime, never written to files
-	result := make(map[string]string)
-	for k, v := range overrides {
-		if k != "PORT" {
-			result[k] = v
-		}
-	}
-
-	return result, nil
+	// Return all overrides (no exclusions)
+	return overrides, nil
 }
 
 // writeServiceEnvFile writes a dotenv format file with the remapped variables.

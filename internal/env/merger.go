@@ -10,12 +10,12 @@ import (
 // LayeredEnv represents a layered environment with multiple sources
 type LayeredEnv struct {
 	Base      map[string]string // Base environment from file
+	Service   map[string]string // Service-specific environment from <service-path>/.env
 	Overrides map[string]string // Context-specific overrides
-	Runtime   map[string]string // Runtime values (e.g., PORT)
 }
 
 // Merge merges all layers into a single environment map
-// Priority (lowest to highest): Base → Overrides → Runtime
+// Priority (lowest to highest): Base → Service → Overrides
 func (e *LayeredEnv) Merge() map[string]string {
 	result := make(map[string]string)
 
@@ -24,13 +24,13 @@ func (e *LayeredEnv) Merge() map[string]string {
 		result[k] = v
 	}
 
-	// Layer 2: Context overrides
-	for k, v := range e.Overrides {
+	// Layer 2: Service-specific environment
+	for k, v := range e.Service {
 		result[k] = v
 	}
 
-	// Layer 3: Runtime values (highest priority)
-	for k, v := range e.Runtime {
+	// Layer 3: Context overrides
+	for k, v := range e.Overrides {
 		result[k] = v
 	}
 
@@ -53,8 +53,8 @@ func (e *LayeredEnv) ToSlice() []string {
 func (e *LayeredEnv) Stats() EnvStats {
 	return EnvStats{
 		BaseVars:     len(e.Base),
+		ServiceVars:  len(e.Service),
 		OverrideVars: len(e.Overrides),
-		RuntimeVars:  len(e.Runtime),
 		TotalVars:    len(e.Merge()),
 	}
 }
@@ -62,8 +62,8 @@ func (e *LayeredEnv) Stats() EnvStats {
 // EnvStats contains statistics about environment layers
 type EnvStats struct {
 	BaseVars     int
+	ServiceVars  int
 	OverrideVars int
-	RuntimeVars  int
 	TotalVars    int
 }
 
@@ -72,13 +72,13 @@ type EnvStats struct {
 // cfg: The dual configuration
 // contextName: The name of the current context
 // overrides: Context-specific overrides from registry
-// port: The calculated port for this service
-func LoadLayeredEnv(projectRoot string, cfg *config.Config, contextName string, overrides map[string]string, port int) (*LayeredEnv, error) {
+// Note: This function does NOT load service-specific .env files. Use the manual approach in run.go instead.
+func LoadLayeredEnv(projectRoot string, cfg *config.Config, contextName string, overrides map[string]string) (*LayeredEnv, error) {
 	loader := NewLoader()
 	env := &LayeredEnv{
 		Base:      make(map[string]string),
+		Service:   make(map[string]string),
 		Overrides: make(map[string]string),
-		Runtime:   make(map[string]string),
 	}
 
 	// Load base environment file if configured
@@ -97,9 +97,6 @@ func LoadLayeredEnv(projectRoot string, cfg *config.Config, contextName string, 
 	if overrides != nil {
 		env.Overrides = overrides
 	}
-
-	// Add runtime PORT (always highest priority)
-	env.Runtime["PORT"] = fmt.Sprintf("%d", port)
 
 	return env, nil
 }

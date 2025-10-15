@@ -43,8 +43,8 @@ var envCmd = &cobra.Command{
 	Long: `Manage context-specific environment variable overrides.
 
 Environment variables are layered in the following priority (highest to lowest):
-  1. Runtime values (PORT)
-  2. Context-specific overrides
+  1. Context-specific overrides
+  2. Service-specific environment
   3. Base environment file
 
 Use 'dual env set' to override variables for the current context.`,
@@ -74,7 +74,7 @@ var envSetCmd = &cobra.Command{
 	Long: `Set an environment variable override for the current context.
 
 This override will be applied whenever commands are run in this context.
-The override takes precedence over the base environment file but not over PORT.
+The override takes precedence over service and base environment files.
 
 Use --service to set a service-specific override that only applies to that service.
 
@@ -108,7 +108,7 @@ var envExportCmd = &cobra.Command{
 	Short: "Export merged environment to stdout",
 	Long: `Export the complete merged environment to stdout.
 
-The output includes all layers merged together (base, overrides, runtime).
+The output includes all layers merged together (base, service, overrides).
 
 Examples:
   dual env export              # dotenv format
@@ -236,14 +236,11 @@ func runEnvShow(cmd *cobra.Command, args []string) error {
 	// Get environment overrides for the specified service (or global if no service specified)
 	overrides := ctx.GetEnvOverrides(envServiceFlag)
 
-	// Load layered environment (without PORT since we're just showing info)
-	layeredEnv, err := env.LoadLayeredEnv(projectRoot, cfg, contextName, overrides, 0)
+	// Load layered environment
+	layeredEnv, err := env.LoadLayeredEnv(projectRoot, cfg, contextName, overrides)
 	if err != nil {
 		return fmt.Errorf("failed to load environment: %w", err)
 	}
-
-	// Remove PORT from runtime since we added it with 0
-	delete(layeredEnv.Runtime, "PORT")
 
 	// Get stats
 	stats := layeredEnv.Stats()
@@ -624,8 +621,8 @@ func runEnvExport(cmd *cobra.Command, args []string) error {
 	// Get environment overrides for the specified service (or global if no service specified)
 	overrides := ctx.GetEnvOverrides(envServiceFlag)
 
-	// Load layered environment (with PORT as placeholder - will be replaced by actual port at runtime)
-	layeredEnv, err := env.LoadLayeredEnv(projectRoot, cfg, contextName, overrides, 0)
+	// Load layered environment
+	layeredEnv, err := env.LoadLayeredEnv(projectRoot, cfg, contextName, overrides)
 	if err != nil {
 		return fmt.Errorf("failed to load environment: %w", err)
 	}
@@ -814,12 +811,12 @@ func loadAndMergeContextEnvs(context1, context2 string) (map[string]string, map[
 	}
 
 	// Load environments for both contexts
-	env1, err := env.LoadLayeredEnv(projectRoot, cfg, context1, ctx1.EnvOverrides, 0)
+	env1, err := env.LoadLayeredEnv(projectRoot, cfg, context1, ctx1.EnvOverrides)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to load environment for %q: %w", context1, err)
 	}
 
-	env2, err := env.LoadLayeredEnv(projectRoot, cfg, context2, ctx2.EnvOverrides, 0)
+	env2, err := env.LoadLayeredEnv(projectRoot, cfg, context2, ctx2.EnvOverrides)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to load environment for %q: %w", context2, err)
 	}
@@ -837,9 +834,6 @@ func calculateEnvDiff(merged1, merged2 map[string]string) envDiff {
 
 	// Find changed and removed
 	for k, v1 := range merged1 {
-		if k == "PORT" {
-			continue // Skip PORT comparison
-		}
 		if v2, exists := merged2[k]; exists {
 			if v1 != v2 {
 				diff.changed[k] = [2]string{v1, v2}
@@ -851,9 +845,6 @@ func calculateEnvDiff(merged1, merged2 map[string]string) envDiff {
 
 	// Find added
 	for k, v2 := range merged2 {
-		if k == "PORT" {
-			continue // Skip PORT comparison
-		}
 		if _, exists := merged1[k]; !exists {
 			diff.added[k] = v2
 		}
