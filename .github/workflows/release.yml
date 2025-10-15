@@ -5,10 +5,16 @@ on:
     tags:
       - 'v*'
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
   # Required for creating releases and pushing to homebrew-tap
   packages: write
+  # Required for npm provenance
+  id-token: write
 
 jobs:
   goreleaser:
@@ -34,4 +40,93 @@ jobs:
           version: latest
           args: release --clean
         env:
-          GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.LIGHTFAST_RELEASE_BOT_HOMEBREW_TAP_TOKEN || secrets.GITHUB_TOKEN }}
+
+  npm-publish:
+    runs-on: ubuntu-latest
+    needs: goreleaser
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "Publishing version: $VERSION"
+
+      - name: Update package.json version
+        working-directory: ./npm
+        run: |
+          npm version ${{ steps.version.outputs.VERSION }} --no-git-tag-version --allow-same-version
+          echo "Updated package.json to version ${{ steps.version.outputs.VERSION }}"
+
+      - name: Publish to npm
+        working-directory: ./npm
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.LIGHTFAST_RELEASE_BOT_NPM_TOKEN }}
+
+  verify-release:
+    runs-on: ubuntu-latest
+    needs: [goreleaser, npm-publish]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          TAG=${GITHUB_REF#refs/tags/}
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "TAG=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Wait for npm propagation
+        run: |
+          echo "Waiting 60 seconds for npm package to propagate..."
+          sleep 60
+
+      - name: Verify GitHub Release
+        run: |
+          echo "Verifying GitHub Release ${{ steps.version.outputs.TAG }}..."
+          gh release view ${{ steps.version.outputs.TAG }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Verify npm package
+        run: |
+          echo "Verifying npm package @lightfastai/dual@${{ steps.version.outputs.VERSION }}..."
+          npm view "@lightfastai/dual@${{ steps.version.outputs.VERSION }}"
+
+      - name: Test binary download
+        run: |
+          echo "Testing binary download for Linux x86_64..."
+          ASSET_URL="https://github.com/lightfastai/dual/releases/download/${{ steps.version.outputs.TAG }}/dual_Linux_x86_64.tar.gz"
+          curl -fsSL "$ASSET_URL" -o dual.tar.gz
+          tar -xzf dual.tar.gz
+          chmod +x dual
+          ./dual --version
+          echo "Binary download and execution successful!"
+
+      - name: Verify Homebrew tap
+        run: |
+          echo "Checking Homebrew formula..."
+          curl -fsSL https://raw.githubusercontent.com/lightfastai/homebrew-tap/main/Formula/dual.rb | grep -q "${{ steps.version.outputs.VERSION }}"
+          echo "Homebrew formula updated successfully!"
+
+      - name: Release verification summary
+        run: |
+          echo "✅ All release channels verified successfully!"
+          echo ""
+          echo "Release ${{ steps.version.outputs.TAG }} is available on:"
+          echo "  • GitHub: https://github.com/lightfastai/dual/releases/tag/${{ steps.version.outputs.TAG }}"
+          echo "  • npm: https://www.npmjs.com/package/@lightfastai/dual/v/${{ steps.version.outputs.VERSION }}"
+          echo "  • Homebrew: https://github.com/lightfastai/homebrew-tap"
