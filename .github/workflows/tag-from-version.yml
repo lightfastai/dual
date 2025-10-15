@@ -54,3 +54,7 @@ jobs:
           git tag -a "v$VERSION" -m "Release v$VERSION"
           git push origin "v$VERSION"
           echo "✅ Created and pushed tag v$VERSION"
+        env:
+          # Use PAT to trigger downstream workflows (release.yml)
+          # Default GITHUB_TOKEN cannot trigger other workflows
+          GITHUB_TOKEN: ${{ secrets.LIGHTFAST_RELEASE_BOT_GITHUB_TOKEN }}
