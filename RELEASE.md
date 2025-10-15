@@ -518,6 +518,19 @@ dual --version
 
 The `verify-release` job in the workflow automatically performs these checks.
 
+## Workflow Refactoring Notes
+
+### October 2024 - Consolidated Release Workflow
+
+The release workflow was refactored to eliminate the manual tag re-push requirement. Key changes:
+
+- **Path-based triggering**: Workflow now triggers on `npm/package.json` changes instead of tag pushes
+- **Automatic tag creation**: Git tags are created within the workflow after version detection
+- **Single workflow file**: All release steps consolidated into one workflow for better maintainability
+- **No manual intervention**: Complete automation from Version Packages PR merge to multi-channel publication
+
+This refactoring improves reliability and reduces the potential for human error in the release process.
+
 ## Support
 
 For issues with:
