@@ -213,7 +213,6 @@ func validateService(name string, service Service, projectRoot string) error {
 func validateHooks(hooks map[string][]string, projectRoot string) error {
 	validEvents := map[string]bool{
 		"postWorktreeCreate": true,
-		"postPortAssign":     true,
 		"preWorktreeDelete":  true,
 		"postWorktreeDelete": true,
 		"postEnvChange":      true,
@@ -221,7 +220,7 @@ func validateHooks(hooks map[string][]string, projectRoot string) error {
 
 	for event, scripts := range hooks {
 		if !validEvents[event] {
-			return fmt.Errorf("invalid hook event: %s (valid events: postWorktreeCreate, postPortAssign, preWorktreeDelete, postWorktreeDelete, postEnvChange)", event)
+			return fmt.Errorf("invalid hook event: %s (valid events: postWorktreeCreate, preWorktreeDelete, postWorktreeDelete, postEnvChange)", event)
 		}
 
 		for _, script := range scripts {

@@ -61,13 +61,13 @@ func ContextNotFound(contextName string, projectRoot string) *Error {
 	// Add specific fixes based on the context
 	if contextName == "default" {
 		err = err.WithFixes(
-			"Run: dual context create default --base-port 4000",
+			"Run: dual context create default",
 			"Or create a context for your current branch",
 		)
 	} else {
 		err = err.WithFixes(
-			fmt.Sprintf("Run: dual context create %s --base-port <port>", contextName),
-			"Or: dual context create (auto-assigns port)",
+			fmt.Sprintf("Run: dual context create %s", contextName),
+			"Or: dual context create (auto-detects context name)",
 			"View all contexts: dual context list",
 		)
 	}
@@ -133,7 +133,7 @@ func PortConflict(port int, processInfo string) *Error {
 
 	err = err.WithFixes(
 		"Kill the process using this port",
-		"Use different base port: dual context create --base-port <port>",
+		"Configure PORT remapping in your lifecycle hooks",
 		"Or wait for the process to finish",
 	)
 
