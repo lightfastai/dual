@@ -1,16 +1,14 @@
 {
   "name": "@lightfastai/dual",
-  "version": "0.3.0",
-  "description": "Git worktree lifecycle management with hook-based environment customization",
+  "version": "0.2.2",
+  "description": "General-purpose port management for multi-context development",
   "keywords": [
+    "port",
+    "development",
     "worktree",
-    "git",
-    "lifecycle",
-    "hooks",
     "monorepo",
     "cli",
-    "devtools",
-    "development"
+    "devtools"
   ],
   "repository": {
     "type": "git",
