@@ -52,15 +52,21 @@ func runSync(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to detect context: %w", err)
 	}
 
-	// Load registry
-	reg, err := registry.LoadRegistry()
+	// Get the normalized project identifier for registry operations
+	projectIdentifier, err := config.GetProjectIdentifier(projectRoot)
+	if err != nil {
+		return fmt.Errorf("failed to get project identifier: %w", err)
+	}
+
+	// Load registry (using projectIdentifier so worktrees share the parent repo's registry)
+	reg, err := registry.LoadRegistry(projectIdentifier)
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
 	}
 	defer reg.Close()
 
 	// Calculate ports for all services
-	ports, err := service.CalculateAllPorts(cfg, reg, projectRoot, contextName)
+	ports, err := service.CalculateAllPorts(cfg, reg, projectIdentifier, contextName)
 	if err != nil {
 		if errors.Is(err, service.ErrContextNotFound) {
 			return fmt.Errorf("context %q not found in registry\nHint: Run 'dual context create' to create this context", contextName)

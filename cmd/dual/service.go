@@ -213,8 +213,8 @@ func runServiceList(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to get project identifier: %w", err)
 		}
 
-		// Load registry
-		reg, err := registry.LoadRegistry()
+		// Load registry (using projectPath so worktrees share the parent repo's registry)
+		reg, err := registry.LoadRegistry(projectPath)
 		if err != nil {
 			return fmt.Errorf("failed to load registry: %w", err)
 		}

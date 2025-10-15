@@ -399,10 +399,51 @@ func TestMultiProjectPortIsolation(t *testing.T) {
 	h.AssertOutputContains(stdout2, "api")
 	h.AssertOutputContains(stdout2, "4101")
 
-	// Verify registry contains both projects
-	registry := h.ReadRegistryJSON()
-	h.AssertOutputContains(registry, "project1")
-	h.AssertOutputContains(registry, "project2")
+	// Verify each project has its own isolated registry
+	// Read project1's registry
+	registry1Path := filepath.Join(project1, ".dual", "registry.json")
+	registry1Content, err := os.ReadFile(registry1Path)
+	if err != nil {
+		t.Fatalf("failed to read project1 registry: %v", err)
+	}
+	registry1 := string(registry1Content)
+
+	// Read project2's registry
+	registry2Path := filepath.Join(project2, ".dual", "registry.json")
+	registry2Content, err := os.ReadFile(registry2Path)
+	if err != nil {
+		t.Fatalf("failed to read project2 registry: %v", err)
+	}
+	registry2 := string(registry2Content)
+
+	// Each registry should contain its own project data
+	// Registry structure has a "projects" key with project paths
+	if !strings.Contains(registry1, "projects") {
+		t.Error("project1 registry should contain 'projects' key")
+	}
+	if !strings.Contains(registry2, "projects") {
+		t.Error("project2 registry should contain 'projects' key")
+	}
+
+	// Verify project1's registry contains project1 path
+	if !strings.Contains(registry1, project1) {
+		t.Errorf("project1 registry should contain project1 path %s", project1)
+	}
+
+	// Verify project2's registry contains project2 path
+	if !strings.Contains(registry2, project2) {
+		t.Errorf("project2 registry should contain project2 path %s", project2)
+	}
+
+	// Verify registries are isolated - project1's registry should NOT contain project2's path
+	if strings.Contains(registry1, project2) {
+		t.Error("project1 registry should NOT contain project2 path (registries should be isolated)")
+	}
+
+	// Verify registries are isolated - project2's registry should NOT contain project1's path
+	if strings.Contains(registry2, project1) {
+		t.Error("project2 registry should NOT contain project1 path (registries should be isolated)")
+	}
 }
 
 // Helper functions for multi-project test

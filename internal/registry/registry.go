@@ -14,11 +14,12 @@ import (
 	"github.com/gofrs/flock"
 )
 
-// Registry represents the global registry structure stored in ~/.dual/registry.json
+// Registry represents the project-local registry structure stored in $PROJECT_ROOT/.dual/registry.json
 type Registry struct {
-	Projects map[string]Project `json:"projects"`
-	mu       sync.RWMutex       `json:"-"`
-	flock    *flock.Flock       `json:"-"` // File lock for atomic operations
+	Projects    map[string]Project `json:"projects"`
+	mu          sync.RWMutex       `json:"-"`
+	flock       *flock.Flock       `json:"-"` // File lock for atomic operations
+	projectRoot string             `json:"-"` // Project root path for SaveRegistry
 }
 
 // Project represents a single project in the registry
@@ -56,34 +57,26 @@ var (
 	LockTimeout = 5 * time.Second
 )
 
-// GetRegistryPath returns the path to the registry file
-func GetRegistryPath() (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get home directory: %w", err)
-	}
-	return filepath.Join(homeDir, ".dual", "registry.json"), nil
+// GetRegistryPath returns the path to the project-local registry file
+func GetRegistryPath(projectRoot string) (string, error) {
+	return filepath.Join(projectRoot, ".dual", "registry.json"), nil
 }
 
-// GetLockPath returns the path to the registry lock file
-func GetLockPath() (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get home directory: %w", err)
-	}
-	return filepath.Join(homeDir, ".dual", "registry.json.lock"), nil
+// GetLockPath returns the path to the project-local registry lock file
+func GetLockPath(projectRoot string) (string, error) {
+	return filepath.Join(projectRoot, ".dual", "registry.json.lock"), nil
 }
 
-// LoadRegistry reads the registry from ~/.dual/registry.json with file locking
+// LoadRegistry reads the registry from $PROJECT_ROOT/.dual/registry.json with file locking
 // If the file doesn't exist or is corrupt, it returns a new empty registry
 // The caller MUST call Close() on the returned registry to release the lock
-func LoadRegistry() (*Registry, error) {
-	registryPath, err := GetRegistryPath()
+func LoadRegistry(projectRoot string) (*Registry, error) {
+	registryPath, err := GetRegistryPath(projectRoot)
 	if err != nil {
 		return nil, err
 	}
 
-	lockPath, err := GetLockPath()
+	lockPath, err := GetLockPath(projectRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +84,7 @@ func LoadRegistry() (*Registry, error) {
 	// Ensure directory exists before creating lock file
 	registryDir := filepath.Dir(registryPath)
 	if err := os.MkdirAll(registryDir, 0o750); err != nil {
-		return nil, fmt.Errorf("failed to create registry directory: %w", err)
+		return nil, fmt.Errorf("failed to create project-local registry directory: %w", err)
 	}
 
 	// Create file lock
@@ -111,9 +104,10 @@ func LoadRegistry() (*Registry, error) {
 
 	// Initialize registry
 	registry := &Registry{
-		Projects: make(map[string]Project),
-		mu:       sync.RWMutex{},
-		flock:    fileLock,
+		Projects:    make(map[string]Project),
+		mu:          sync.RWMutex{},
+		flock:       fileLock,
+		projectRoot: projectRoot,
 	}
 
 	// If file doesn't exist, return empty registry (but keep the lock)
@@ -136,7 +130,7 @@ func LoadRegistry() (*Registry, error) {
 	}
 	if err := json.Unmarshal(data, &loadedData); err != nil {
 		// If corrupt, log warning but continue with empty registry (keep the lock)
-		fmt.Fprintf(os.Stderr, "[dual] Warning: corrupt registry file, creating new one: %v\n", err)
+		fmt.Fprintf(os.Stderr, "[dual] Warning: corrupt registry file in project-local .dual directory, creating new one: %v\n", err)
 		return registry, nil
 	}
 
@@ -148,12 +142,13 @@ func LoadRegistry() (*Registry, error) {
 	return registry, nil
 }
 
-// SaveRegistry writes the registry to ~/.dual/registry.json atomically
+// SaveRegistry writes the registry to $PROJECT_ROOT/.dual/registry.json atomically
+// Uses the stored projectRoot field from LoadRegistry
 func (r *Registry) SaveRegistry() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	registryPath, err := GetRegistryPath()
+	registryPath, err := GetRegistryPath(r.projectRoot)
 	if err != nil {
 		return err
 	}
@@ -161,7 +156,7 @@ func (r *Registry) SaveRegistry() error {
 	// Ensure directory exists
 	registryDir := filepath.Dir(registryPath)
 	if err := os.MkdirAll(registryDir, 0o750); err != nil {
-		return fmt.Errorf("failed to create registry directory: %w", err)
+		return fmt.Errorf("failed to create project-local registry directory: %w", err)
 	}
 
 	// Marshal to JSON with indentation for readability

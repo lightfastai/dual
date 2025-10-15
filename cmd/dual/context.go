@@ -117,7 +117,7 @@ func runContextInfo(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load registry
-	reg, err := registry.LoadRegistry()
+	reg, err := registry.LoadRegistry(projectIdentifier)
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
 	}
@@ -197,8 +197,8 @@ func runContextCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get project identifier: %w", err)
 	}
 
-	// Load registry
-	reg, err := registry.LoadRegistry()
+	// Load registry (using projectIdentifier so worktrees share the parent repo's registry)
+	reg, err := registry.LoadRegistry(projectIdentifier)
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
 	}
@@ -264,8 +264,20 @@ func getProjectRoot() (string, error) {
 }
 
 func runContextList(cmd *cobra.Command, args []string) error {
-	// Load registry
-	reg, err := registry.LoadRegistry()
+	// Get project root first
+	projectRoot, err := getProjectRoot()
+	if err != nil {
+		return fmt.Errorf("failed to determine project root: %w\nHint: Make sure you're in a git repository or have a dual.config.yml file", err)
+	}
+
+	// Get the normalized project identifier for loading the registry
+	projectIdentifier, err := config.GetProjectIdentifier(projectRoot)
+	if err != nil {
+		return fmt.Errorf("failed to get project identifier: %w", err)
+	}
+
+	// Load registry (using projectIdentifier so worktrees share the parent repo's registry)
+	reg, err := registry.LoadRegistry(projectIdentifier)
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
 	}
@@ -562,8 +574,8 @@ func runContextDelete(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot delete current context %q\nHint: Switch to a different branch or context first", contextName)
 	}
 
-	// Load registry
-	reg, err := registry.LoadRegistry()
+	// Load registry (using projectIdentifier so worktrees share the parent repo's registry)
+	reg, err := registry.LoadRegistry(projectIdentifier)
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
 	}

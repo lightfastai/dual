@@ -104,7 +104,7 @@ func CheckRegistry(ctx *CheckerContext) Check {
 		totalContexts += len(project.Contexts)
 	}
 
-	registryPath, _ := registry.GetRegistryPath()
+	registryPath, _ := registry.GetRegistryPath(ctx.ProjectRoot)
 
 	// Check if registry file exists (optional - may not exist in tests)
 	details := []string{
@@ -468,7 +468,7 @@ func CheckPermissions(ctx *CheckerContext) Check {
 	var issues []string
 
 	// Check registry directory permissions
-	registryPath, _ := registry.GetRegistryPath()
+	registryPath, _ := registry.GetRegistryPath(ctx.ProjectRoot)
 	registryDir := filepath.Dir(registryPath)
 
 	if info, err := os.Stat(registryDir); err == nil {

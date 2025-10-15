@@ -191,7 +191,7 @@ func runEnvShow(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load registry
-	reg, err := registry.LoadRegistry()
+	reg, err := registry.LoadRegistry(projectIdentifier)
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
 	}
@@ -386,7 +386,7 @@ func runEnvSet(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load registry
-	reg, err := registry.LoadRegistry()
+	reg, err := registry.LoadRegistry(projectIdentifier)
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
 	}
@@ -479,7 +479,7 @@ func runEnvUnset(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load registry
-	reg, err := registry.LoadRegistry()
+	reg, err := registry.LoadRegistry(projectIdentifier)
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
 	}
@@ -560,7 +560,7 @@ func runEnvExport(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load registry
-	reg, err := registry.LoadRegistry()
+	reg, err := registry.LoadRegistry(projectIdentifier)
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
 	}
@@ -672,7 +672,7 @@ func runEnvCheck(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "Error: Failed to get project identifier: %v\n", err)
 		hasIssues = true
 	} else {
-		reg, err := registry.LoadRegistry()
+		reg, err := registry.LoadRegistry(projectIdentifier)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: Failed to load registry: %v\n", err)
 			hasIssues = true
@@ -754,7 +754,7 @@ func loadAndMergeContextEnvs(context1, context2 string) (map[string]string, map[
 	}
 
 	// Load registry
-	reg, err := registry.LoadRegistry()
+	reg, err := registry.LoadRegistry(projectIdentifier)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to load registry: %w", err)
 	}

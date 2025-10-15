@@ -60,7 +60,7 @@ func runPorts(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load registry
-	reg, err := registry.LoadRegistry()
+	reg, err := registry.LoadRegistry(projectIdentifier)
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
 	}

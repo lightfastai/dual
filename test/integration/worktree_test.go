@@ -47,9 +47,11 @@ func TestMultiWorktreeSetup(t *testing.T) {
 		t.Fatalf("config file not found in worktree: %v", err)
 	}
 
-	// Create context for feature branch in the worktree
-	t.Log("Step 4: Create context for feature branch in worktree")
-	stdout, stderr, exitCode = h.RunDualInDir(worktreePath, "context", "create", "feature/new-feature", "--base-port", "4200")
+	// Create context for feature branch from the MAIN repo (not worktree)
+	// This ensures the context is stored in the parent repo's registry,
+	// which all worktrees will share via GetProjectIdentifier normalization
+	t.Log("Step 4: Create context for feature branch from main repo")
+	stdout, stderr, exitCode = h.RunDual("context", "create", "feature/new-feature", "--base-port", "4200")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 	h.AssertOutputContains(stdout, "Created context \"feature/new-feature\"")
 
@@ -140,11 +142,13 @@ func TestWorktreeContextIsolation(t *testing.T) {
 
 	// Feature A worktree
 	worktreeA := h.CreateGitWorktree("feature/a", "worktree-a")
-	h.RunDualInDir(worktreeA, "context", "create", "feature/a", "--base-port", "4200")
+	// Create context from main repo so it's stored in the shared registry
+	h.RunDual("context", "create", "feature/a", "--base-port", "4200")
 
 	// Feature B worktree
 	worktreeB := h.CreateGitWorktree("feature/b", "worktree-b")
-	h.RunDualInDir(worktreeB, "context", "create", "feature/b", "--base-port", "4300")
+	// Create context from main repo so it's stored in the shared registry
+	h.RunDual("context", "create", "feature/b", "--base-port", "4300")
 
 	// Verify each worktree uses its own context and port
 	t.Log("Verifying port isolation")
@@ -203,9 +207,10 @@ func TestWorktreeWithDualContextFile(t *testing.T) {
 	// Create a worktree
 	worktreePath := h.CreateGitWorktree("feature/test", "worktree-test")
 
-	// Create a context for the feature/test branch (which git will auto-detect)
+	// Create a context for the feature/test branch from main repo
+	// (which git will auto-detect when running from the worktree)
 	// Note: Git branch detection has priority over .dual-context file
-	h.RunDualInDir(worktreePath, "context", "create", "feature/test", "--base-port", "5000")
+	h.RunDual("context", "create", "feature/test", "--base-port", "5000")
 
 	// Query port - should use feature/test context (detected from git branch)
 	stdout, stderr, exitCode := h.RunDualInDir(filepath.Join(worktreePath, "apps/web"), "port")
@@ -246,7 +251,8 @@ func TestWorktreeServiceDetection(t *testing.T) {
 
 	// Create worktree
 	worktreePath := h.CreateGitWorktree("feature/test", "worktree-test")
-	h.RunDualInDir(worktreePath, "context", "create", "feature/test", "--base-port", "4200")
+	// Create context from main repo so it's stored in the shared registry
+	h.RunDual("context", "create", "feature/test", "--base-port", "4200")
 
 	// Test service detection in main worktree
 	t.Log("Testing service detection in main worktree")

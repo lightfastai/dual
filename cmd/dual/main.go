@@ -142,9 +142,9 @@ func runCommandWrapper(args []string) error {
 		return fmt.Errorf("failed to get project identifier: %w", err)
 	}
 
-	// Load registry
+	// Load registry (using projectIdentifier so worktrees share the parent repo's registry)
 	logger.Debug("Loading registry...")
-	reg, err := registry.LoadRegistry()
+	reg, err := registry.LoadRegistry(projectIdentifier)
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
 	}

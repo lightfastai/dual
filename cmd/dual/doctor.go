@@ -86,6 +86,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	}
 
 	cfg, projectRoot, err := config.LoadConfig()
+	var projectID string
 	if err != nil {
 		// Config not found or invalid - still record the check
 		ctx.Config = nil
@@ -96,7 +97,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		ctx.ProjectRoot = projectRoot
 
 		// Get project identifier for registry operations
-		projectID, err := config.GetProjectIdentifier(projectRoot)
+		projectID, err = config.GetProjectIdentifier(projectRoot)
 		if err != nil {
 			logger.Verbose("Warning: failed to get project identifier: %v", err)
 			projectID = projectRoot // Fallback
@@ -111,14 +112,22 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		logger.Verbose("Checking registry...")
 	}
 
-	reg, err := registry.LoadRegistry()
-	if err != nil {
-		logger.Verbose("Warning: failed to load registry: %v", err)
+	// Load registry (using projectID so worktrees share the parent repo's registry)
+	// Only load if config was successfully loaded (projectID will be non-empty)
+	if projectID == "" {
+		// Skip registry check if config failed to load
 		ctx.Registry = nil
 		result.AddCheck(health.CheckRegistry(ctx))
 	} else {
-		ctx.Registry = reg
-		result.AddCheck(health.CheckRegistry(ctx))
+		reg, err := registry.LoadRegistry(projectID)
+		if err != nil {
+			logger.Verbose("Warning: failed to load registry: %v", err)
+			ctx.Registry = nil
+			result.AddCheck(health.CheckRegistry(ctx))
+		} else {
+			ctx.Registry = reg
+			result.AddCheck(health.CheckRegistry(ctx))
+		}
 	}
 
 	// === Check 4: Current Context ===

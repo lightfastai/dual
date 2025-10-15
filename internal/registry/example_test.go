@@ -10,20 +10,15 @@ import (
 
 // Example demonstrates basic registry usage
 func Example() {
-	// Set up temporary directory for testing
-	tmpDir, err := os.MkdirTemp("", "dual-example")
+	// Set up temporary directory as project root
+	projectRoot, err := os.MkdirTemp("", "dual-example")
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer os.RemoveAll(tmpDir)
-
-	// Override home directory for this example
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	defer os.RemoveAll(projectRoot)
 
 	// Load or create registry
-	reg, err := registry.LoadRegistry()
+	reg, err := registry.LoadRegistry(projectRoot)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -68,18 +63,14 @@ func Example() {
 
 // ExampleRegistry_FindNextAvailablePort demonstrates port allocation
 func ExampleRegistry_FindNextAvailablePort() {
-	// Set up temporary directory for testing
-	tmpDir, err := os.MkdirTemp("", "dual-example")
+	// Set up temporary directory as project root
+	projectRoot, err := os.MkdirTemp("", "dual-example")
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer os.RemoveAll(projectRoot)
 
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
-
-	reg, _ := registry.LoadRegistry()
+	reg, _ := registry.LoadRegistry(projectRoot)
 	defer reg.Close()
 
 	// First port (empty registry)
@@ -108,18 +99,14 @@ func ExampleRegistry_FindNextAvailablePort() {
 
 // ExampleRegistry_ListContexts demonstrates listing all contexts for a project
 func ExampleRegistry_ListContexts() {
-	// Set up temporary directory for testing
-	tmpDir, err := os.MkdirTemp("", "dual-example")
+	// Set up temporary directory as project root
+	projectRoot, err := os.MkdirTemp("", "dual-example")
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer os.RemoveAll(projectRoot)
 
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
-
-	reg, _ := registry.LoadRegistry()
+	reg, _ := registry.LoadRegistry(projectRoot)
 	defer reg.Close()
 
 	// Add multiple contexts
