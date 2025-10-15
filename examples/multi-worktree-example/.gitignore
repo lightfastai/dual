@@ -1,0 +1,12 @@
+# Environment files (worktree-specific, should not be committed)
+.env.local
+.dual-port
+apps/*/.env
+
+# Node modules
+node_modules/
+package-lock.json
+
+# Dual registry (project-specific state)
+.dual/registry.json
+.dual/registry.json.lock
