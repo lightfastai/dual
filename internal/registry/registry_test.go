@@ -340,14 +340,6 @@ func TestListContexts(t *testing.T) {
 	}
 }
 
-// TestFindNextAvailablePort tests finding the next available port
-func TestFindNextAvailablePort(t *testing.T) {
-	// Note: This test is no longer relevant as base ports are managed by port_manager.go
-	// Keeping the test structure for now, but it should be removed or updated
-	// when port allocation logic is fully migrated
-	t.Skip("FindNextAvailablePort is deprecated - port allocation handled by port_manager.go")
-}
-
 // TestGetAllProjects tests listing all projects
 func TestGetAllProjects(t *testing.T) {
 	registry := &Registry{

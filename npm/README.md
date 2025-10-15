@@ -1,12 +1,12 @@
 # @lightfastai/dual
 
-> General-purpose port management for multi-context development
+> Git worktree lifecycle management with environment remapping via hooks
 
 [![npm version](https://img.shields.io/npm/v/@lightfastai/dual)](https://www.npmjs.com/package/@lightfastai/dual)
 [![npm downloads](https://img.shields.io/npm/dm/@lightfastai/dual)](https://www.npmjs.com/package/@lightfastai/dual)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/lightfastai/dual/blob/main/LICENSE)
 
-`dual` is a CLI tool that automatically manages port assignments across different development contexts (git branches, worktrees, or clones), eliminating port conflicts when working on multiple features simultaneously.
+`dual` is a CLI tool that manages git worktree lifecycle (creation, deletion) with a flexible hook system for custom environment configuration. It enables developers to work on multiple features simultaneously by automating worktree setup and providing hooks for custom environment setup (database branches, port assignment, dependency installation, etc.).
 
 ## Installation
 
@@ -35,42 +35,54 @@ This creates `dual.config.yml` in your project root.
 
 ```bash
 # For a monorepo
-npx dual service add web --path apps/web --env-file .vercel/.env.development.local
-npx dual service add api --path apps/api --env-file .env
+npx dual service add web --path apps/web
+npx dual service add api --path apps/api
 
 # For a single-service project
-npx dual service add app --path . --env-file .env.local
+npx dual service add app --path .
 ```
 
-### 3. Create contexts
+### 3. Configure worktrees
+
+Edit `dual.config.yml` to add worktree configuration:
+
+```yaml
+version: 1
+
+services:
+  web:
+    path: ./apps/web
+  api:
+    path: ./apps/api
+
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
+```
+
+### 4. Create worktrees with hooks
 
 ```bash
-# Main branch gets default ports
-npx dual context create main --base-port 4100
+# Create a new worktree for a feature branch
+npx dual create feature-auth
 
-# Feature branch in worktree gets different ports
-cd ~/Code/myproject-wt/feature-auth
-npx dual context create feature-auth --base-port 4200
+# This will:
+# 1. Create git worktree at ../worktrees/feature-auth
+# 2. Register the context
+# 3. Run postWorktreeCreate hooks (if configured)
 ```
 
-### 4. Use in package.json scripts
-
-```json
-{
-  "scripts": {
-    "dev": "dual pnpm dev",
-    "build": "dual pnpm build",
-    "start": "dual npm start"
-  }
-}
-```
-
-Now run your scripts normally:
+### 5. Delete worktrees with cleanup
 
 ```bash
-pnpm dev    # Runs with auto-detected port
-pnpm build  # Builds with correct PORT
-pnpm start  # Starts with correct PORT
+# Delete a worktree and run cleanup hooks
+npx dual delete feature-auth
+
+# This will:
+# 1. Run preWorktreeDelete hooks (if configured)
+# 2. Remove git worktree
+# 3. Unregister the context
+# 4. Run postWorktreeDelete hooks (if configured)
 ```
 
 ## Using npx vs Local Installation
@@ -82,7 +94,9 @@ When you install `@lightfastai/dual` as a dev dependency, you can use it directl
 ```json
 {
   "scripts": {
-    "dev": "dual pnpm dev"
+    "worktree:create": "dual create",
+    "worktree:delete": "dual delete",
+    "worktree:list": "dual context list"
   }
 }
 ```
@@ -94,7 +108,8 @@ npm/pnpm/yarn will automatically find the locally installed binary in `node_modu
 You can also use `dual` without installing it:
 
 ```bash
-npx @lightfastai/dual pnpm dev
+npx @lightfastai/dual create feature-auth
+npx @lightfastai/dual delete feature-auth
 ```
 
 However, this downloads the package on every run, so local installation is recommended for regular use.
@@ -121,21 +136,19 @@ The npm package downloads the appropriate native Go binary for your platform dur
 - **Version pinning**: Lock to specific versions with package.json
 - **Cross-platform**: Automatically installs the correct binary for each platform
 
-## Example: Monorepo Setup
+## Example: Monorepo Setup with Hooks
 
 **package.json (root):**
 ```json
 {
   "name": "my-monorepo",
   "scripts": {
-    "dev:web": "dual pnpm --filter web dev",
-    "dev:api": "dual pnpm --filter api dev",
-    "dev:all": "concurrently \"pnpm dev:web\" \"pnpm dev:api\"",
-    "build": "dual pnpm -r build"
+    "worktree:new": "dual create",
+    "worktree:remove": "dual delete",
+    "worktree:list": "dual context list"
   },
   "devDependencies": {
-    "@lightfastai/dual": "^0.1.0",
-    "concurrently": "^8.0.0"
+    "@lightfastai/dual": "^0.3.0"
   }
 }
 ```
@@ -143,21 +156,53 @@ The npm package downloads the appropriate native Go binary for your platform dur
 **dual.config.yml:**
 ```yaml
 version: 1
+
 services:
   web:
     path: apps/web
-    envFile: .vercel/.env.development.local
   api:
     path: apps/api
-    envFile: .env
+
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
+
+hooks:
+  postWorktreeCreate:
+    - setup-database.sh
+    - setup-environment.sh
+    - install-dependencies.sh
+  preWorktreeDelete:
+    - cleanup-database.sh
+```
+
+**.dual/hooks/setup-environment.sh:**
+```bash
+#!/bin/bash
+set -e
+
+echo "Setting up environment for: $DUAL_CONTEXT_NAME"
+
+# Calculate port based on context name hash
+BASE_PORT=4000
+CONTEXT_HASH=$(echo -n "$DUAL_CONTEXT_NAME" | md5sum | cut -c1-4)
+PORT=$((BASE_PORT + 0x$CONTEXT_HASH % 1000))
+
+# Write to .env file
+cat > "$DUAL_CONTEXT_PATH/.env.local" <<EOF
+PORT=$PORT
+DATABASE_URL=postgresql://localhost/myapp_${DUAL_CONTEXT_NAME}
+EOF
+
+echo "Assigned port: $PORT"
 ```
 
 Now team members just run:
 ```bash
-pnpm install       # Installs dual automatically
-pnpm dev:web       # Runs web with auto-detected port
-pnpm dev:api       # Runs api with auto-detected port
-pnpm dev:all       # Runs both simultaneously, no conflicts!
+pnpm install              # Installs dual automatically
+pnpm worktree:new feat-x  # Creates worktree with hooks
+pnpm worktree:list        # Lists all worktrees
+pnpm worktree:remove feat-x  # Deletes worktree with cleanup
 ```
 
 ## Troubleshooting
@@ -214,6 +259,83 @@ If the binary download fails due to network issues:
    ```
 
 3. Manually download the binary from [GitHub Releases](https://github.com/lightfastai/dual/releases) and place it in `node_modules/@lightfastai/dual/bin/`
+
+## Migrating from v0.2.x to v0.3.0
+
+Version 0.3.0 introduces breaking changes. The CLI now focuses on worktree lifecycle management with hooks, removing automatic port management.
+
+### What Changed
+
+**Removed Features:**
+- Automatic port assignment and management
+- Command wrapper mode (`dual <command>`)
+- `dual port` and `dual ports` commands
+- `dual context create` with `--base-port` flag
+- `postPortAssign` hook event
+
+**New Features:**
+- `dual create <branch>` - Create worktrees with lifecycle hooks
+- `dual delete <context>` - Delete worktrees with cleanup hooks
+- Hook system for custom environment setup
+- Project-local registry (moved from `~/.dual/registry.json` to `$PROJECT_ROOT/.dual/registry.json`)
+
+### Migration Steps
+
+1. **Update your package.json:**
+   ```bash
+   npm install @lightfastai/dual@^0.3.0
+   ```
+
+2. **Remove command wrapper usage:**
+   ```diff
+   - "dev": "dual pnpm dev"
+   + "dev": "pnpm dev"
+   ```
+
+3. **If you need port assignment, implement it in hooks:**
+
+   Create `.dual/hooks/setup-environment.sh`:
+   ```bash
+   #!/bin/bash
+   set -e
+
+   # Calculate port based on context name hash
+   BASE_PORT=4000
+   CONTEXT_HASH=$(echo -n "$DUAL_CONTEXT_NAME" | md5sum | cut -c1-4)
+   PORT=$((BASE_PORT + 0x$CONTEXT_HASH % 1000))
+
+   # Write to .env file
+   echo "PORT=$PORT" > "$DUAL_CONTEXT_PATH/.env.local"
+   ```
+
+   Configure in `dual.config.yml`:
+   ```yaml
+   hooks:
+     postWorktreeCreate:
+       - setup-environment.sh
+   ```
+
+4. **Update worktree workflows:**
+   ```diff
+   - npx dual context create feature-x --base-port 4200
+   + npx dual create feature-x
+
+   - npx dual context delete feature-x
+   + npx dual delete feature-x
+   ```
+
+5. **Recreate existing contexts:**
+
+   The registry has moved from `~/.dual/registry.json` to `$PROJECT_ROOT/.dual/registry.json`. Existing contexts need to be recreated:
+   ```bash
+   # Delete old contexts (if any)
+   rm -rf ~/.dual/registry.json
+
+   # Recreate worktrees with new system
+   npx dual create feature-x
+   ```
+
+For more details, see the [Migration Guide](https://github.com/lightfastai/dual/blob/main/MIGRATION.md) in the main repository.
 
 ## Documentation
 

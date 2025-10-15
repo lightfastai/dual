@@ -94,7 +94,7 @@ func CheckRegistry(ctx *CheckerContext) Check {
 		return check.
 			WithStatus(StatusError).
 			WithMessage("Registry could not be loaded").
-			WithFixAction("Delete ~/.dual/registry.json and run 'dual context create'")
+			WithFixAction("Delete $PROJECT_ROOT/.dual/registry.json and run 'dual create'")
 	}
 
 	// Count contexts
@@ -118,7 +118,7 @@ func CheckRegistry(ctx *CheckerContext) Check {
 				WithStatus(StatusWarn).
 				WithMessage("Registry file does not exist yet").
 				WithDetails("Location: " + registryPath).
-				WithFixAction("Run 'dual context create' to initialize registry")
+				WithFixAction("Run 'dual create' to initialize registry")
 		}
 		// Registry has data but no file - likely in a test
 		return check.
@@ -143,7 +143,7 @@ func CheckRegistry(ctx *CheckerContext) Check {
 			WithStatus(StatusError).
 			WithMessage("Registry file is corrupt (invalid JSON)").
 			WithError(err).
-			WithFixAction("Delete " + registryPath + " and run 'dual context create'")
+			WithFixAction("Delete " + registryPath + " and run 'dual create'")
 	}
 
 	return check.
@@ -174,7 +174,7 @@ func CheckCurrentContext(ctx *CheckerContext) Check {
 			return check.
 				WithStatus(StatusWarn).
 				WithMessage(fmt.Sprintf("Context '%s' exists locally but not in registry", ctx.CurrentContext)).
-				WithFixAction(fmt.Sprintf("Run 'dual context create' to register context '%s'", ctx.CurrentContext))
+				WithFixAction(fmt.Sprintf("Run 'dual create' to register context '%s'", ctx.CurrentContext))
 		}
 
 		// Get context details

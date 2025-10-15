@@ -165,7 +165,7 @@ func TestCheckCurrentContext(t *testing.T) {
 		check := CheckCurrentContext(ctx)
 		assert.Equal(t, StatusWarn, check.Status)
 		assert.Contains(t, check.Message, "not in registry")
-		assert.Contains(t, check.FixAction, "dual context create")
+		assert.Contains(t, check.FixAction, "dual create")
 	})
 }
 

@@ -37,8 +37,7 @@ type ContextEnvOverrides struct {
 type Context struct {
 	Created        time.Time            `json:"created"`
 	Path           string               `json:"path,omitempty"`
-	EnvOverrides   map[string]string    `json:"envOverrides,omitempty"`   // Deprecated: use EnvOverridesV2
-	EnvOverridesV2 *ContextEnvOverrides `json:"envOverridesV2,omitempty"` // New: layered overrides
+	EnvOverridesV2 *ContextEnvOverrides `json:"envOverridesV2,omitempty"` // Layered overrides
 }
 
 var (
@@ -211,15 +210,11 @@ func (r *Registry) SetContext(projectPath, contextName string, contextPath strin
 	// Preserve existing env overrides if updating
 	existingContext, exists := project.Contexts[contextName]
 	newContext := Context{
-		Created:      time.Now(),
-		Path:         contextPath,
-		EnvOverrides: make(map[string]string),
+		Created: time.Now(),
+		Path:    contextPath,
 	}
 
 	// Preserve existing overrides if context already exists
-	if exists && existingContext.EnvOverrides != nil {
-		newContext.EnvOverrides = existingContext.EnvOverrides
-	}
 	if exists && existingContext.EnvOverridesV2 != nil {
 		newContext.EnvOverridesV2 = existingContext.EnvOverridesV2
 	}
@@ -369,15 +364,9 @@ func (r *Registry) Close() error {
 }
 
 // GetEnvOverrides returns environment overrides for a context
-// Automatically migrates old format to new if needed
 // serviceName can be empty string for global overrides
 func (c *Context) GetEnvOverrides(serviceName string) map[string]string {
-	// Auto-migrate if needed
-	if c.EnvOverridesV2 == nil && c.EnvOverrides != nil {
-		c.migrateEnvOverrides()
-	}
-
-	// If still nil, return empty map
+	// If nil, return empty map
 	if c.EnvOverridesV2 == nil {
 		return make(map[string]string)
 	}
@@ -400,21 +389,6 @@ func (c *Context) GetEnvOverrides(serviceName string) map[string]string {
 	}
 
 	return result
-}
-
-// migrateEnvOverrides migrates old format (flat map) to new format (layered)
-func (c *Context) migrateEnvOverrides() {
-	if c.EnvOverrides == nil {
-		return
-	}
-
-	c.EnvOverridesV2 = &ContextEnvOverrides{
-		Global:   c.EnvOverrides,
-		Services: make(map[string]map[string]string),
-	}
-
-	// Clear old format to prevent confusion
-	c.EnvOverrides = nil
 }
 
 // SetEnvOverride sets an environment override for a context

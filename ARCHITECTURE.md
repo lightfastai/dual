@@ -8,12 +8,12 @@ Technical documentation explaining how `dual` works internally.
 - [Core Components](#core-components)
 - [Data Flow](#data-flow)
 - [File Structure](#file-structure)
-- [Port Calculation Algorithm](#port-calculation-algorithm)
+- [Worktree Management](#worktree-management)
+- [Hook System](#hook-system)
 - [Context Detection](#context-detection)
 - [Service Detection](#service-detection)
 - [Registry Management](#registry-management)
 - [Configuration System](#configuration-system)
-- [Command Execution](#command-execution)
 - [Concurrency and Thread Safety](#concurrency-and-thread-safety)
 - [Error Handling](#error-handling)
 - [Design Decisions](#design-decisions)
@@ -22,34 +22,34 @@ Technical documentation explaining how `dual` works internally.
 
 ## Overview
 
-`dual` is a CLI tool written in Go that manages port assignments across different development contexts. It operates as a transparent command wrapper that:
+`dual` is a CLI tool written in Go that manages git worktree lifecycle (creation, deletion) with environment remapping via hooks. It operates in **Management Mode** with direct subcommands:
 
-1. Detects the current development context (git branch or manual override)
-2. Detects the current service (from working directory or CLI flag)
-3. Calculates the appropriate port using a deterministic formula
-4. Injects the PORT environment variable into the wrapped command
-5. Executes the command with the correct port
+- `dual create <branch>` - Create a new worktree with lifecycle hooks
+- `dual delete <context>` - Delete a worktree with cleanup hooks
+- `dual init` - Initialize dual configuration
+- `dual service add/list/remove` - Manage service definitions
+- `dual context list` - List contexts (deprecated in favor of create/delete)
+- `dual doctor` - Diagnose configuration and registry health
 
 ### Key Principles
 
-- **Transparent**: Shows exactly what it's doing
-- **Deterministic**: Same inputs always produce same outputs
-- **Non-invasive**: Never modifies files (Vercel-proof)
-- **Fast**: Minimal overhead, instant execution
-- **Safe**: Thread-safe registry operations
+- **Hook-Based Customization**: Core tool manages worktree lifecycle; users implement custom logic (ports, databases, env) in hooks
+- **Transparent**: Always show user what operations are being performed
+- **Fail-safe**: Corrupt registry or missing config produce helpful errors, not crashes
+- **Isolated Contexts**: Each worktree is an independent environment
+- **Project-Local State**: Registry and hooks are project-specific, not global
 
 ---
 
 ## Core Components
 
-### 1. Command Wrapper (`cmd/dual/main.go`)
+### 1. Command Entry Point (`cmd/dual/main.go`)
 
-The entry point and primary interface. Handles:
-- Parsing command-line arguments
-- Detecting passthrough vs. subcommand mode
-- Orchestrating detection and execution pipeline
-- Injecting PORT environment variable
-- Managing layered environment merging
+The entry point and command router. Handles:
+- Parsing command-line arguments via cobra
+- Routing to appropriate subcommands
+- Global flags (--verbose, --debug)
+- Version information
 
 ### 2. Config Manager (`internal/config/`)
 
@@ -57,121 +57,148 @@ Manages `dual.config.yml` file:
 - Searches for config file up the directory tree
 - Parses and validates YAML structure
 - Provides service definitions to other components
-- Validates service paths and env files
-- Manages base environment file configuration
+- Validates service paths exist
+- Supports optional worktrees and hooks configuration
+- Thread-safe file I/O with atomic writes
 
 ### 3. Registry Manager (`internal/registry/`)
 
-Manages `~/.dual/registry.json`:
-- Stores context-to-basePort mappings globally
+Manages `$PROJECT_ROOT/.dual/registry.json`:
+- Project-local state (not global like v0.2.x)
+- Structure: projects → contexts (name → path, created timestamp)
+- All worktrees of a repository share the parent repo's registry via `GetProjectIdentifier()` normalization
 - Thread-safe read/write operations with `sync.RWMutex`
-- File locking with `gofrs/flock` for atomic operations
-- Auto-assigns next available ports
-- Stores environment overrides (global and service-specific)
-- Supports migration from old to new override format
+- File locking with flock to prevent concurrent modifications
+- Atomic writes via temp file + rename pattern
+- Auto-recovers from corruption (returns empty registry)
 
 ### 4. Context Detector (`internal/context/`)
 
 Determines the current development context:
+- Priority: git branch → `.dual-context` file → "default"
 - Executes `git branch --show-current`
 - Searches for `.dual-context` file
 - Falls back to "default"
 
-### 5. Service Detector (`internal/service/`)
+### 5. Service Detector (`internal/service/detector.go`)
 
 Identifies the current service:
-- Matches current directory against service paths
-- Uses longest path match for nested services
-- Calculates service index from config order
+- Matches current working directory against service paths from config
+- Resolves symlinks for consistency across worktrees
+- Uses longest path match for nested service structures
+- Returns `ErrServiceNotDetected` if no match found
 
-### 6. Port Calculator (`internal/service/`)
+### 6. Hook System (`internal/hooks/`)
 
-Computes final port number:
-- Formula: `port = basePort + serviceIndex + 1`
-- Retrieves basePort from registry
-- Determines serviceIndex from config
+Executes lifecycle hooks at key worktree management points:
+- Hook events: `postWorktreeCreate`, `preWorktreeDelete`, `postWorktreeDelete`
+- Scripts located in `$PROJECT_ROOT/.dual/hooks/` and configured in `dual.config.yml`
+- Receives context via environment variables: `DUAL_EVENT`, `DUAL_CONTEXT_NAME`, `DUAL_CONTEXT_PATH`, `DUAL_PROJECT_ROOT`
+- Non-zero exit codes fail the operation and halt execution
+- Scripts run in sequence (not parallel)
+- stdout/stderr are streamed to the user in real-time
 
-### 7. Logger Manager (`internal/logger/`)
+### 7. Worktree Manager (`internal/worktree/`)
+
+Handles git worktree operations:
+- Creates git worktrees at configured location
+- Names directories using configured pattern (defaults to `{branch}`)
+- Registers context in project-local registry
+- Integrates with hook system for automation
+- Validates worktree paths and branch names
+- Removes worktrees with cleanup
+
+### 8. Logger Manager (`internal/logger/`)
 
 Provides structured logging with multiple verbosity levels:
 - **Verbose mode** (`--verbose`): Shows detailed operational info
 - **Debug mode** (`--debug`): Shows internal state and decisions
 - **Environment variable**: `DUAL_DEBUG=1` enables debug mode
-- All output goes to stderr to keep stdout clean for command output
+- All output goes to stderr to keep stdout clean
 - Functions: `Info()`, `Success()`, `Error()`, `Verbose()`, `Debug()`
-
-### 8. Port Conflict Detector (`internal/ports/`)
-
-Detects and prevents port conflicts:
-- **Duplicate base ports**: Finds contexts sharing the same base port
-- **Port range overlaps**: Detects overlapping service port ranges
-- **In-use detection**: Checks if ports are currently bound using `net.Listen`
-- **Process identification**: Cross-platform process lookup (lsof, netstat)
-- Provides smart base port suggestions avoiding conflicts
-
-### 9. Environment Manager (`internal/env/`)
-
-Manages layered environment variable system:
-- **Loader**: Parses dotenv files with full format support
-- **Merger**: Merges base, overrides, and runtime layers
-- **LayeredEnv**: Tracks all three environment layers
-- Supports export format, quoted values, comments
-- Provides statistics and inspection capabilities
 
 ---
 
 ## Data Flow
 
-### Command Wrapper Execution Flow
+### Worktree Creation Flow
 
 ```
-User runs: dual pnpm dev
+User runs: dual create feature-x
          │
          ▼
 ┌────────────────────┐
-│  Parse Arguments   │ ──► Detect: passthrough mode
+│  Parse Arguments   │ ──► Extract branch name: feature-x
 └────────────────────┘
          │
          ▼
 ┌────────────────────┐
 │  Load Config       │ ──► Find dual.config.yml
 │  (config.go)       │     Parse YAML
-└────────────────────┘     Validate services
+└────────────────────┘     Validate worktrees.path
          │
          ▼
 ┌────────────────────┐
-│  Detect Context    │ ──► Try git branch
-│  (context.go)      │     Try .dual-context file
-└────────────────────┘     Fall back to "default"
-         │
-         ▼
-┌────────────────────┐
-│  Detect Service    │ ──► Match CWD vs service paths
-│  (service.go)      │     Select longest match
-└────────────────────┘     Return service name
-         │
-         ▼
-┌────────────────────┐
-│  Load Registry     │ ──► Read ~/.dual/registry.json
-│  (registry.go)     │     Parse JSON
-└────────────────────┘     Find project context
-         │
-         ▼
-┌────────────────────┐
-│  Calculate Port    │ ──► Get basePort from registry
-│  (calculator.go)   │     Get serviceIndex from config
-└────────────────────┘     port = basePort + serviceIndex + 1
-         │
-         ▼
-┌────────────────────┐
-│  Print Info        │ ──► [dual] Context: main | Service: web | Port: 4101
+│  Validate Path     │ ──► Check if worktree path exists
+│                    │     Ensure not in worktree already
 └────────────────────┘
          │
          ▼
 ┌────────────────────┐
-│  Execute Command   │ ──► Set PORT=4101 in environment
-│                    │     Run: pnpm dev
-└────────────────────┘     Stream stdout/stderr
+│  Create Worktree   │ ──► git worktree add <path> -b <branch>
+│  (worktree.go)     │     Register in registry
+└────────────────────┘
+         │
+         ▼
+┌────────────────────┐
+│  Execute Hooks     │ ──► Run postWorktreeCreate scripts
+│  (hooks.go)        │     Pass context via env vars
+└────────────────────┘     Stream output to user
+         │
+         ▼
+┌────────────────────┐
+│  Success Message   │ ──► [dual] Created worktree for: feature-x
+└────────────────────┘     Path: /path/to/worktrees/feature-x
+```
+
+### Worktree Deletion Flow
+
+```
+User runs: dual delete feature-x
+         │
+         ▼
+┌────────────────────┐
+│  Parse Arguments   │ ──► Extract context name: feature-x
+└────────────────────┘
+         │
+         ▼
+┌────────────────────┐
+│  Load Registry     │ ──► Read project-local registry
+│  (registry.go)     │     Find context entry
+└────────────────────┘     Validate it's a worktree
+         │
+         ▼
+┌────────────────────┐
+│  Pre-Delete Hooks  │ ──► Run preWorktreeDelete scripts
+│  (hooks.go)        │     While files still exist
+└────────────────────┘
+         │
+         ▼
+┌────────────────────┐
+│  Remove Worktree   │ ──► git worktree remove <path>
+│  (worktree.go)     │     Remove from registry
+└────────────────────┘
+         │
+         ▼
+┌────────────────────┐
+│  Post-Delete Hooks │ ──► Run postWorktreeDelete scripts
+│  (hooks.go)        │     After worktree removed
+└────────────────────┘
+         │
+         ▼
+┌────────────────────┐
+│  Success Message   │ ──► [dual] Deleted worktree: feature-x
+└────────────────────┘
 ```
 
 ---
@@ -183,15 +210,14 @@ User runs: dual pnpm dev
 ```
 dual/
 ├── cmd/dual/                    # Command implementations
-│   ├── main.go                  # Entry point, command wrapper
+│   ├── main.go                  # Entry point, command routing
 │   ├── init.go                  # dual init
-│   ├── service.go               # dual service add
-│   ├── context.go               # dual context, dual context create
-│   ├── env.go                   # dual env (set, unset, show, export, check, diff)
-│   ├── port.go                  # dual port
-│   ├── ports.go                 # dual ports
-│   ├── open.go                  # dual open
-│   └── sync.go                  # dual sync
+│   ├── service.go               # dual service add/list/remove
+│   ├── context.go               # dual context list
+│   ├── create.go                # dual create <branch>
+│   ├── delete.go                # dual delete <context>
+│   ├── doctor.go                # dual doctor
+│   └── completion.go            # Shell completions
 │
 ├── internal/                    # Internal packages
 │   ├── config/                  # Configuration management
@@ -207,24 +233,26 @@ dual/
 │   │   ├── detector.go          # Detection logic
 │   │   └── detector_test.go     # Unit tests
 │   │
-│   ├── service/                 # Service detection and port calculation
+│   ├── service/                 # Service detection
 │   │   ├── detector.go          # Service detection
-│   │   ├── detector_test.go     # Unit tests
-│   │   ├── calculator.go        # Port calculation
-│   │   └── calculator_test.go   # Unit tests
+│   │   └── detector_test.go     # Unit tests
 │   │
-│   ├── logger/                  # Logging system
-│   │   ├── logger.go            # Structured logging with verbosity levels
-│   │   └── logger_test.go       # Unit tests
+│   ├── hooks/                   # Hook system
+│   │   ├── executor.go          # Hook execution logic
+│   │   └── executor_test.go     # Unit tests
 │   │
-│   ├── ports/                   # Port conflict detection
-│   │   ├── conflict.go          # Conflict detection and process lookup
-│   │   └── conflict_test.go     # Unit tests
+│   ├── worktree/                # Worktree operations
+│   │   ├── manager.go           # Worktree creation/deletion
+│   │   └── manager_test.go      # Unit tests
 │   │
-│   └── env/                     # Environment management
-│       ├── loader.go            # Environment file parsing
-│       ├── merger.go            # Layered environment merging
-│       └── loader_test.go       # Unit tests
+│   └── logger/                  # Logging system
+│       ├── logger.go            # Structured logging with verbosity levels
+│       └── logger_test.go       # Unit tests
+│
+├── test/integration/            # Integration tests
+│   ├── helpers_test.go          # Test utilities
+│   ├── worktree_lifecycle_test.go  # Worktree creation/deletion tests
+│   └── hooks_test.go            # Hook execution tests
 │
 ├── dual.config.yml              # Example configuration
 ├── go.mod                       # Go module definition
@@ -235,116 +263,309 @@ dual/
 
 ```
 Project directory:
-  dual.config.yml              # Committed to repo, defines services
-  .dual-context                # Optional, overrides git branch detection
+  dual.config.yml              # Committed to repo, defines services/worktrees/hooks
+  .dual/
+    ├── registry.json          # Project-local state, NOT committed (add to .gitignore)
+    ├── registry.json.lock     # Temporary file during operations
+    └── hooks/                 # Hook scripts, can be committed
+        ├── setup-database.sh
+        ├── setup-environment.sh
+        └── cleanup-database.sh
 
-User home directory:
-  ~/.dual/
-    └── registry.json          # Global registry, never committed
+Worktree directory:
+  .dual-context                # Optional, overrides git branch detection
 ```
 
 ---
 
-## Port Calculation Algorithm
+## Worktree Management
 
-### Formula
+### Creation (`dual create <branch>`)
 
+**Steps:**
+
+1. **Validation**
+   - Check if `worktrees.path` is configured in `dual.config.yml`
+   - Validate branch name is valid
+   - Check if already in a worktree (only create from main repo)
+   - Resolve worktree target path based on naming pattern
+
+2. **Git Worktree Creation**
+   ```bash
+   git worktree add <target-path> -b <branch>
+   ```
+
+3. **Registry Update**
+   - Add context entry to project-local registry
+   - Store worktree path, creation timestamp
+   - Use file locking to prevent concurrent modifications
+
+4. **Hook Execution**
+   - Execute `postWorktreeCreate` hooks in sequence
+   - Set environment variables: `DUAL_EVENT`, `DUAL_CONTEXT_NAME`, `DUAL_CONTEXT_PATH`, `DUAL_PROJECT_ROOT`
+   - Stream stdout/stderr to user
+   - Halt on non-zero exit code
+
+**Example:**
+```bash
+dual create feature-auth
+# Creates: ../worktrees/feature-auth
+# Registers: feature-auth → /abs/path/to/worktrees/feature-auth
+# Executes: .dual/hooks/setup-database.sh, .dual/hooks/setup-environment.sh
 ```
-port = basePort + serviceIndex + 1
+
+### Deletion (`dual delete <context>`)
+
+**Steps:**
+
+1. **Validation**
+   - Check if context exists in registry
+   - Verify it has a worktree path (not main repo)
+   - Validate worktree directory exists
+
+2. **Pre-Delete Hooks**
+   - Execute `preWorktreeDelete` hooks in sequence
+   - Files still exist at this point
+   - Typical use: backup data, cleanup databases
+
+3. **Git Worktree Removal**
+   ```bash
+   git worktree remove <path>
+   ```
+
+4. **Registry Update**
+   - Remove context from registry
+   - Use file locking to prevent concurrent modifications
+
+5. **Post-Delete Hooks**
+   - Execute `postWorktreeDelete` hooks in sequence
+   - Worktree files are gone at this point
+   - Typical use: notify team, cleanup external resources
+
+**Example:**
+```bash
+dual delete feature-auth
+# Executes: .dual/hooks/backup-data.sh (pre-delete)
+# Removes: git worktree at /abs/path/to/worktrees/feature-auth
+# Unregisters: feature-auth from registry
+# Executes: .dual/hooks/notify-team.sh (post-delete)
 ```
 
-### Components
+### Worktree Path Resolution
 
-1. **basePort**: Retrieved from registry for current context
-   - Stored in `~/.dual/registry.json`
-   - Typically assigned in 100-port increments (4100, 4200, 4300)
+**Naming pattern** (from `worktrees.naming` in config):
+- Default: `{branch}` - uses branch name as directory name
+- Example: `feature/auth` → `feature-auth` (slashes replaced with dashes)
 
-2. **serviceIndex**: Position of service in config
-   - Determined by order in `dual.config.yml`
-   - Zero-indexed (first service = 0, second = 1, etc.)
+**Target path calculation:**
+```go
+func ResolveWorktreePath(projectRoot, worktreesPath, branch string, pattern string) string {
+    // 1. Resolve worktreesPath relative to projectRoot
+    absWorktreesPath := filepath.Join(projectRoot, worktreesPath)
 
-3. **+1 offset**: Prevents using base port directly
-   - Leaves base port available for metadata/routing
-   - Makes port math clearer (4100 base → services start at 4101)
+    // 2. Apply naming pattern
+    dirName := strings.ReplaceAll(pattern, "{branch}", branch)
+    dirName = strings.ReplaceAll(dirName, "/", "-")
 
-### Example
-
-```yaml
-# dual.config.yml
-version: 1
-services:
-  web:     # serviceIndex = 0
-    path: apps/web
-  api:     # serviceIndex = 1
-    path: apps/api
-  worker:  # serviceIndex = 2
-    path: apps/worker
-```
-
-```json
-// ~/.dual/registry.json
-{
-  "projects": {
-    "/Users/dev/Code/myproject": {
-      "contexts": {
-        "main": {
-          "basePort": 4100
-        },
-        "feature-auth": {
-          "basePort": 4200
-        }
-      }
-    }
-  }
+    // 3. Construct final path
+    return filepath.Join(absWorktreesPath, dirName)
 }
 ```
 
-**Port Calculation:**
+---
 
+## Hook System
+
+### Hook Events
+
+- **`postWorktreeCreate`**: Runs after creating a git worktree and registering the context
+- **`preWorktreeDelete`**: Runs before deleting a worktree, while files still exist
+- **`postWorktreeDelete`**: Runs after deleting a worktree and removing from registry
+
+### Hook Configuration
+
+Hook scripts are stored in `$PROJECT_ROOT/.dual/hooks/` and configured in `dual.config.yml`:
+
+```yaml
+version: 1
+
+services:
+  web:
+    path: ./apps/web
+  api:
+    path: ./apps/api
+
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
+
+hooks:
+  postWorktreeCreate:
+    - setup-database.sh
+    - setup-environment.sh
+    - install-dependencies.sh
+  preWorktreeDelete:
+    - backup-data.sh
+    - cleanup-database.sh
+  postWorktreeDelete:
+    - notify-team.sh
 ```
-Context: main (basePort = 4100)
-  web:    4100 + 0 + 1 = 4101
-  api:    4100 + 1 + 1 = 4102
-  worker: 4100 + 2 + 1 = 4103
 
-Context: feature-auth (basePort = 4200)
-  web:    4200 + 0 + 1 = 4201
-  api:    4200 + 1 + 1 = 4202
-  worker: 4200 + 2 + 1 = 4203
+### Hook Environment Variables
+
+Hook scripts receive the following environment variables:
+
+- **`DUAL_EVENT`**: The hook event name (e.g., `postWorktreeCreate`)
+- **`DUAL_CONTEXT_NAME`**: Context name (usually the branch name)
+- **`DUAL_CONTEXT_PATH`**: Absolute path to the worktree directory
+- **`DUAL_PROJECT_ROOT`**: Absolute path to the main repository
+
+### Hook Execution Rules
+
+- Scripts must be executable (`chmod +x`)
+- Scripts run in sequence (not parallel)
+- Non-zero exit code halts execution and fails the operation
+- stdout/stderr are streamed to the user in real-time
+- Scripts run with the worktree directory as working directory (except `postWorktreeDelete`)
+- Hook failure during `dual create` leaves the worktree in place but may be partially configured
+- Hook failure during `dual delete` halts deletion - worktree and registry entry remain
+
+### Hook Script Examples
+
+**Example 1: Port Assignment Hook**
+```bash
+#!/bin/bash
+# .dual/hooks/setup-environment.sh
+
+set -e
+
+echo "Setting up environment for: $DUAL_CONTEXT_NAME"
+
+# Calculate port based on context name hash
+BASE_PORT=4000
+CONTEXT_HASH=$(echo -n "$DUAL_CONTEXT_NAME" | md5sum | cut -c1-4)
+PORT=$((BASE_PORT + 0x$CONTEXT_HASH % 1000))
+
+# Write to .env file
+cat > "$DUAL_CONTEXT_PATH/.env.local" <<EOF
+PORT=$PORT
+DATABASE_URL=postgresql://localhost/myapp_${DUAL_CONTEXT_NAME}
+EOF
+
+echo "Assigned port: $PORT"
 ```
 
-### Implementation
+**Example 2: Database Branch Setup**
+```bash
+#!/bin/bash
+# .dual/hooks/setup-database.sh
+
+set -e
+
+echo "Creating database branch for: $DUAL_CONTEXT_NAME"
+
+# Create PlanetScale branch
+pscale branch create myapp "$DUAL_CONTEXT_NAME" --from main
+
+# Get connection string
+CONNECTION_URL=$(pscale connect myapp "$DUAL_CONTEXT_NAME" --format url)
+
+# Update .env file
+echo "DATABASE_URL=$CONNECTION_URL" >> "$DUAL_CONTEXT_PATH/.env.local"
+
+echo "Database branch created"
+```
+
+**Example 3: Dependency Installation**
+```bash
+#!/bin/bash
+# .dual/hooks/install-dependencies.sh
+
+set -e
+
+echo "Installing dependencies for: $DUAL_CONTEXT_NAME"
+
+cd "$DUAL_CONTEXT_PATH"
+pnpm install
+
+echo "Dependencies installed"
+```
+
+**Example 4: Pre-Delete Backup**
+```bash
+#!/bin/bash
+# .dual/hooks/backup-data.sh
+
+set -e
+
+echo "Backing up data for: $DUAL_CONTEXT_NAME"
+
+# Backup database
+pg_dump myapp_${DUAL_CONTEXT_NAME} > ~/backups/${DUAL_CONTEXT_NAME}.sql
+
+echo "Data backed up to ~/backups/${DUAL_CONTEXT_NAME}.sql"
+```
+
+**Example 5: Post-Delete Cleanup**
+```bash
+#!/bin/bash
+# .dual/hooks/cleanup-database.sh
+
+set -e
+
+echo "Cleaning up database for: $DUAL_CONTEXT_NAME"
+
+# Delete PlanetScale branch
+pscale branch delete myapp "$DUAL_CONTEXT_NAME" --force
+
+echo "Database branch deleted"
+```
+
+### Hook Implementation
 
 ```go
-// internal/service/calculator.go
+// internal/hooks/executor.go
 
-func CalculatePort(cfg *config.Config, reg *registry.Registry,
-                   projectRoot, contextName, serviceName string) (int, error) {
-    // 1. Get basePort from registry
-    ctx, err := reg.GetContext(projectRoot, contextName)
-    if err != nil {
-        return 0, err
-    }
-    basePort := ctx.BasePort
+type Executor struct {
+    ProjectRoot string
+    HooksDir    string
+    Verbose     bool
+}
 
-    // 2. Get serviceIndex from config
-    serviceIndex := 0
-    found := false
-    for name := range cfg.Services {
-        if name == serviceName {
-            found = true
-            break
+func (e *Executor) ExecuteHooks(event HookEvent, contextName, contextPath string, scripts []string) error {
+    for _, script := range scripts {
+        scriptPath := filepath.Join(e.HooksDir, script)
+
+        // Check if script exists and is executable
+        info, err := os.Stat(scriptPath)
+        if err != nil {
+            return fmt.Errorf("hook script not found: %s", script)
         }
-        serviceIndex++
-    }
-    if !found {
-        return 0, ErrServiceNotFound
+        if info.Mode()&0111 == 0 {
+            return fmt.Errorf("hook script not executable: %s", script)
+        }
+
+        // Prepare command
+        cmd := exec.Command(scriptPath)
+        cmd.Dir = contextPath  // Run in worktree directory
+        cmd.Env = append(os.Environ(),
+            fmt.Sprintf("DUAL_EVENT=%s", event),
+            fmt.Sprintf("DUAL_CONTEXT_NAME=%s", contextName),
+            fmt.Sprintf("DUAL_CONTEXT_PATH=%s", contextPath),
+            fmt.Sprintf("DUAL_PROJECT_ROOT=%s", e.ProjectRoot),
+        )
+
+        // Stream output to user
+        cmd.Stdout = os.Stdout
+        cmd.Stderr = os.Stderr
+
+        // Execute
+        if err := cmd.Run(); err != nil {
+            return fmt.Errorf("hook script failed: %s (exit code %d)", script, cmd.ProcessState.ExitCode())
+        }
     }
 
-    // 3. Calculate port
-    port := basePort + serviceIndex + 1
-
-    return port, nil
+    return nil
 }
 ```
 
@@ -489,6 +710,12 @@ func DetectService(cfg *config.Config, projectRoot string) (string, error) {
         return "", err
     }
 
+    // Resolve symlinks
+    cwdResolved, err := filepath.EvalSymlinks(cwdAbs)
+    if err != nil {
+        cwdResolved = cwdAbs
+    }
+
     var longestMatch string
     longestMatchLen := 0
 
@@ -496,10 +723,11 @@ func DetectService(cfg *config.Config, projectRoot string) (string, error) {
     for name, service := range cfg.Services {
         servicePath := filepath.Join(projectRoot, service.Path)
         servicePathAbs, _ := filepath.Abs(servicePath)
+        servicePathResolved, _ := filepath.EvalSymlinks(servicePathAbs)
 
         // Check if CWD is within service path
-        if strings.HasPrefix(cwdAbs, servicePathAbs) {
-            matchLen := len(servicePathAbs)
+        if strings.HasPrefix(cwdResolved, servicePathResolved) {
+            matchLen := len(servicePathResolved)
             if matchLen > longestMatchLen {
                 longestMatch = name
                 longestMatchLen = matchLen
@@ -521,7 +749,7 @@ func DetectService(cfg *config.Config, projectRoot string) (string, error) {
 
 ### Registry Structure
 
-The registry now supports layered environment overrides with backward compatibility:
+The registry is **project-local** at `$PROJECT_ROOT/.dual/registry.json`:
 
 ```json
 {
@@ -529,24 +757,8 @@ The registry now supports layered environment overrides with backward compatibil
     "<absolute-project-path>": {
       "contexts": {
         "<context-name>": {
-          "basePort": 4100,
           "path": "/optional/worktree/path",
-          "created": "2025-10-14T10:00:00Z",
-          "envOverrides": {},
-          "envOverridesV2": {
-            "global": {
-              "DATABASE_URL": "postgres://localhost/dev",
-              "DEBUG": "true"
-            },
-            "services": {
-              "api": {
-                "DATABASE_URL": "postgres://localhost/api_db"
-              },
-              "worker": {
-                "QUEUE_URL": "redis://localhost:6379"
-              }
-            }
-          }
+          "created": "2025-10-14T10:00:00Z"
         }
       }
     }
@@ -554,10 +766,11 @@ The registry now supports layered environment overrides with backward compatibil
 }
 ```
 
-**Environment Override Layers**:
-- `envOverrides`: Deprecated flat map, auto-migrated on first access
-- `envOverridesV2.global`: Global overrides applied to all services
-- `envOverridesV2.services[serviceName]`: Service-specific overrides
+**Key points:**
+- Each project has its own registry file
+- All worktrees of a repository share the parent repo's registry (normalized via `GetProjectIdentifier()`)
+- The registry should be added to `.gitignore` to avoid committing context mappings
+- File locking ensures concurrent dual operations don't corrupt the registry
 
 ### File Locking
 
@@ -570,9 +783,9 @@ type Registry struct {
     flock    *flock.Flock       `json:"-"`  // File lock
 }
 
-func LoadRegistry() (*Registry, error) {
+func LoadRegistry(registryPath string) (*Registry, error) {
     // Create file lock
-    lockPath := "~/.dual/registry.json.lock"
+    lockPath := registryPath + ".lock"
     fileLock := flock.New(lockPath)
 
     // Try to acquire lock with timeout (5 seconds)
@@ -601,7 +814,7 @@ func (r *Registry) Close() error {
 **Lock behavior**:
 - Lock acquired in `LoadRegistry()` and held until `Close()`
 - Timeout: 5 seconds (prevents deadlocks)
-- Lock file: `~/.dual/registry.json.lock`
+- Lock file: `$PROJECT_ROOT/.dual/registry.json.lock`
 - Must call `Close()` to release lock (use `defer reg.Close()`)
 
 ### Thread Safety
@@ -615,7 +828,7 @@ func (r *Registry) GetContext(projectPath, contextName string) (*Context, error)
     // ... read operations
 }
 
-func (r *Registry) SetContext(projectPath, contextName string, basePort int) error {
+func (r *Registry) SetContext(projectPath, contextName string, ctx *Context) error {
     r.mu.Lock()  // In-memory write lock
     defer r.mu.Unlock()
     // ... write operations
@@ -631,7 +844,7 @@ func (r *Registry) SetContext(projectPath, contextName string, basePort int) err
 Registry updates use atomic write pattern:
 
 ```go
-func (r *Registry) SaveRegistry() error {
+func (r *Registry) SaveRegistry(registryPath string) error {
     r.mu.Lock()  // Acquire in-memory lock
     defer r.mu.Unlock()
 
@@ -655,30 +868,6 @@ This prevents corruption if:
 - Disk fills up during write
 - SIGKILL during save operation
 
-### Auto-Port Assignment
-
-```go
-func (r *Registry) FindNextAvailablePort() int {
-    usedPorts := make(map[int]bool)
-
-    // Collect all used base ports
-    for _, project := range r.Projects {
-        for _, context := range project.Contexts {
-            usedPorts[context.BasePort] = true
-        }
-    }
-
-    // Find next available port starting from DefaultBasePort (4100)
-    nextPort := DefaultBasePort
-    for {
-        if !usedPorts[nextPort] {
-            return nextPort
-        }
-        nextPort += PortIncrement  // Increment by 100
-    }
-}
-```
-
 ---
 
 ## Configuration System
@@ -687,10 +876,24 @@ func (r *Registry) FindNextAvailablePort() int {
 
 ```yaml
 version: 1
+
 services:
   <service-name>:
     path: <relative-path>
-    envFile: <relative-env-file-path>
+    envFile: <relative-env-file-path>  # Optional
+
+worktrees:
+  path: <relative-path>          # Optional, required for dual create/delete
+  naming: "{branch}"             # Optional, defaults to {branch}
+
+hooks:
+  postWorktreeCreate:            # Optional
+    - script1.sh
+    - script2.sh
+  preWorktreeDelete:             # Optional
+    - script3.sh
+  postWorktreeDelete:            # Optional
+    - script4.sh
 ```
 
 ### Loading Algorithm
@@ -715,66 +918,46 @@ func validateConfig(config *Config, projectRoot string) error {
     for name, service := range config.Services {
         // Path must be relative
         if filepath.IsAbs(service.Path) {
-            return fmt.Errorf("path must be relative")
+            return fmt.Errorf("service %q: path must be relative", name)
         }
 
         // Path must exist
         fullPath := filepath.Join(projectRoot, service.Path)
         if _, err := os.Stat(fullPath); err != nil {
-            return fmt.Errorf("path does not exist: %s", service.Path)
+            return fmt.Errorf("service %q: path does not exist: %s", name, service.Path)
         }
 
         // EnvFile directory must exist (if specified)
         if service.EnvFile != "" {
             envFileDir := filepath.Dir(filepath.Join(projectRoot, service.EnvFile))
             if _, err := os.Stat(envFileDir); err != nil {
-                return fmt.Errorf("envFile directory does not exist")
+                return fmt.Errorf("service %q: envFile directory does not exist", name)
+            }
+        }
+    }
+
+    // Validate worktrees configuration (if present)
+    if config.Worktrees != nil {
+        if filepath.IsAbs(config.Worktrees.Path) {
+            return fmt.Errorf("worktrees.path must be relative")
+        }
+        // Note: path doesn't need to exist yet, will be created
+    }
+
+    // Validate hooks configuration (if present)
+    if config.Hooks != nil {
+        hooksDir := filepath.Join(projectRoot, ".dual", "hooks")
+        for event, scripts := range config.Hooks {
+            for _, script := range scripts {
+                scriptPath := filepath.Join(hooksDir, script)
+                if _, err := os.Stat(scriptPath); err != nil {
+                    return fmt.Errorf("hook script not found: %s (event: %s)", script, event)
+                }
             }
         }
     }
 
     return nil
-}
-```
-
----
-
-## Command Execution
-
-### Environment Injection
-
-```go
-func runCommandWrapper(args []string) error {
-    // ... detection logic ...
-
-    // Prepare command
-    cmd := exec.Command(args[0], args[1:]...)
-
-    // Inject PORT environment variable
-    // Preserve all existing environment variables
-    cmd.Env = append(os.Environ(), fmt.Sprintf("PORT=%d", port))
-
-    // Stream output in real-time
-    cmd.Stdout = os.Stdout
-    cmd.Stderr = os.Stderr
-    cmd.Stdin = os.Stdin
-
-    // Execute
-    return cmd.Run()
-}
-```
-
-### Exit Code Preservation
-
-```go
-err = cmd.Run()
-if err != nil {
-    // Check if it's an exit error with specific code
-    if exitErr, ok := err.(*exec.ExitError); ok {
-        os.Exit(exitErr.ExitCode())  // Preserve exit code
-    }
-    // Other errors (command not found, etc.)
-    return fmt.Errorf("failed to execute command: %w", err)
 }
 ```
 
@@ -788,13 +971,13 @@ Multiple `dual` commands may run simultaneously:
 
 ```bash
 # Terminal 1
-dual pnpm dev
+dual create feature-1
 
 # Terminal 2 (at the same time)
-dual context create feature-x
+dual create feature-2
 
 # Terminal 3 (at the same time)
-dual env set DATABASE_URL "postgres://localhost/dev"
+dual context list
 ```
 
 Registry uses **two-level locking** for maximum safety:
@@ -803,7 +986,7 @@ Registry uses **two-level locking** for maximum safety:
 - Prevents concurrent access across processes
 - Lock acquired in `LoadRegistry()`, released in `Close()`
 - Timeout: 5 seconds (returns `ErrLockTimeout` if exceeded)
-- Lock file: `~/.dual/registry.json.lock`
+- Lock file: `$PROJECT_ROOT/.dual/registry.json.lock`
 
 **Level 2: In-Memory Mutex** (`sync.RWMutex`)
 - Prevents concurrent access within a process
@@ -813,7 +996,7 @@ Registry uses **two-level locking** for maximum safety:
 
 ```go
 // Example usage pattern
-reg, err := registry.LoadRegistry()  // Acquires file lock
+reg, err := registry.LoadRegistry(registryPath)  // Acquires file lock
 if err != nil {
     return err
 }
@@ -822,7 +1005,7 @@ defer reg.Close()  // MUST release lock
 // Operations are safe - both file lock and in-memory mutex protect data
 ctx, err := reg.GetContext(projectPath, contextName)
 // ...
-err = reg.SaveRegistry()
+err = reg.SaveRegistry(registryPath)
 ```
 
 ### File I/O
@@ -831,7 +1014,7 @@ All file operations use atomic patterns:
 
 1. **Config writes**: Temp file + atomic rename
 2. **Registry writes**: Temp file + atomic rename + file locking
-3. **Env file writes** (`dual sync`): Temp file + atomic rename
+3. **Hook script execution**: Sequential, streaming output
 
 ### Lock Timeout Behavior
 
@@ -850,7 +1033,7 @@ This prevents:
 ### Concurrent Safety Guarantees
 
 - ✅ Multiple dual commands reading registry (blocked by file lock, executed serially)
-- ✅ Multiple dual commands executing wrapped commands (parallel, no conflicts)
+- ✅ Multiple dual commands creating worktrees (file lock serializes access)
 - ✅ One dual writing registry while others wait (file lock serializes access)
 - ✅ Crashed writes don't corrupt registry (atomic writes + temp files)
 - ✅ Lock timeout prevents deadlocks (5 second timeout)
@@ -876,6 +1059,20 @@ var (
     ErrProjectNotFound = errors.New("project not found in registry")
     ErrContextNotFound = errors.New("context not found in project")
 )
+
+// Worktree
+var (
+    ErrNotInMainRepo    = errors.New("must be in main repository to create worktree")
+    ErrWorktreeExists   = errors.New("worktree already exists")
+    ErrNotAWorktree     = errors.New("context is not a worktree")
+)
+
+// Hooks
+var (
+    ErrHookScriptNotFound     = errors.New("hook script not found")
+    ErrHookScriptNotExecutable = errors.New("hook script not executable")
+    ErrHookExecutionFailed    = errors.New("hook execution failed")
+)
 ```
 
 ### Error Messages
@@ -884,482 +1081,70 @@ All errors include helpful hints:
 
 ```
 Error: context "feature-x" not found in registry
-Hint: Run 'dual context create' to create this context
+Hint: Run 'dual create feature-x' to create this context
+
+Error: worktrees.path not configured in dual.config.yml
+Hint: Add worktrees configuration to use 'dual create'
+
+Error: hook script not executable: setup-database.sh
+Hint: Run 'chmod +x .dual/hooks/setup-database.sh'
 ```
 
 ### Error Handling Strategy
 
 1. **Recoverable errors**: Show error + hint, exit 1
 2. **Unrecoverable errors**: Show error, exit 1
-3. **Wrapped command errors**: Preserve exit code
+3. **Hook execution errors**: Show error, preserve hook exit code
 4. **Corrupt registry**: Warn, create new empty registry
-
----
-
-## Environment Layering System
-
-`dual` implements a three-layer environment variable system that allows for flexible per-context and per-service configuration.
-
-### Layer Priority
-
-Environment variables are merged in the following order (highest priority last):
-
-1. **Base Layer** (lowest priority)
-   - Source: Environment file specified in `dual.config.yml` (`env.baseFile`)
-   - Scope: All services in all contexts
-   - Format: Standard dotenv file (`.env`, `.env.base`, etc.)
-
-2. **Override Layer** (medium priority)
-   - Source: Registry (`~/.dual/registry.json`)
-   - Scope: Context-specific (global or per-service)
-   - Managed via: `dual env set/unset` commands
-
-3. **Runtime Layer** (highest priority)
-   - Source: Calculated at execution time
-   - Scope: Current execution
-   - Variables: `PORT` (always injected)
-
-### Override Layer Structure
-
-The override layer supports two scopes:
-
-**Global Overrides** - Apply to all services in a context:
-```bash
-dual env set DATABASE_URL "postgres://localhost/dev"
-```
-
-**Service-Specific Overrides** - Apply only to named service:
-```bash
-dual env set --service api DATABASE_URL "postgres://localhost/api_db"
-```
-
-Registry representation:
-```json
-{
-  "envOverridesV2": {
-    "global": {
-      "DATABASE_URL": "postgres://localhost/dev",
-      "DEBUG": "true"
-    },
-    "services": {
-      "api": {
-        "DATABASE_URL": "postgres://localhost/api_db"
-      },
-      "worker": {
-        "QUEUE_URL": "redis://localhost:6379"
-      }
-    }
-  }
-}
-```
-
-### Merge Algorithm
-
-```go
-func (e *LayeredEnv) Merge() map[string]string {
-    result := make(map[string]string)
-
-    // Layer 1: Base environment
-    for k, v := range e.Base {
-        result[k] = v
-    }
-
-    // Layer 2: Context overrides
-    for k, v := range e.Overrides {
-        result[k] = v  // Overwrites base
-    }
-
-    // Layer 3: Runtime values
-    for k, v := range e.Runtime {
-        result[k] = v  // Overwrites everything
-    }
-
-    return result
-}
-```
-
-### Service-Specific Override Resolution
-
-When resolving overrides for a specific service:
-
-```go
-func (c *Context) GetEnvOverrides(serviceName string) map[string]string {
-    result := make(map[string]string)
-
-    // Start with global overrides
-    for k, v := range c.EnvOverridesV2.Global {
-        result[k] = v
-    }
-
-    // Apply service-specific overrides (if service specified)
-    if serviceName != "" {
-        if serviceOverrides, exists := c.EnvOverridesV2.Services[serviceName]; exists {
-            for k, v := range serviceOverrides {
-                result[k] = v  // Service overrides win over global
-            }
-        }
-    }
-
-    return result
-}
-```
-
-**Resolution priority**: `global` → `services[serviceName]`
-
-### Migration from Old Format
-
-The system automatically migrates from the old flat override format:
-
-```go
-// Old format (deprecated)
-"envOverrides": {
-  "DATABASE_URL": "postgres://localhost/dev",
-  "DEBUG": "true"
-}
-
-// Migrated to new format on first access
-"envOverridesV2": {
-  "global": {
-    "DATABASE_URL": "postgres://localhost/dev",
-    "DEBUG": "true"
-  },
-  "services": {}
-}
-```
-
-Migration is transparent and happens automatically when accessing overrides.
-
-### Environment File Loading
-
-The loader supports standard dotenv format:
-
-```bash
-# Comments are supported
-DATABASE_URL=postgres://localhost/dev
-DEBUG=true
-
-# Quoted values
-SECRET_KEY="my secret value with spaces"
-API_KEY='single-quoted-value'
-
-# Export prefix (optional)
-export NODE_ENV=development
-
-# Empty lines are ignored
-
-PORT=4000  # Will be overridden by runtime layer
-```
-
-### Usage Example
-
-```bash
-# Set base environment file in config
-echo "env:
-  baseFile: .env.base" >> dual.config.yml
-
-# Create base environment file
-echo "DATABASE_URL=postgres://localhost/base
-DEBUG=false
-LOG_LEVEL=info" > .env.base
-
-# Create context-specific override
-dual context create feature-auth 4200
-dual env set DEBUG true  # Global override
-
-# Create service-specific override
-dual env set --service api DATABASE_URL "postgres://localhost/auth_db"
-
-# View merged environment
-dual env show --values
-
-# Run command with layered environment
-dual pnpm dev
-```
-
-**Effective environment for `api` service**:
-- `DATABASE_URL`: `postgres://localhost/auth_db` (service-specific override)
-- `DEBUG`: `true` (global override)
-- `LOG_LEVEL`: `info` (base)
-- `PORT`: `4201` (runtime)
-
----
-
-## Port Conflict Detection System
-
-`dual` includes comprehensive port conflict detection to prevent and diagnose port assignment issues.
-
-### Conflict Types
-
-#### 1. Duplicate Base Ports
-
-Multiple contexts assigned the same base port:
-
-```bash
-$ dual ports
-
-Duplicate base port detected:
-  Port 4100:
-    - main (Project: /Users/dev/myproject)
-    - staging (Project: /Users/dev/myproject)
-
-Hint: Use 'dual context create' with --port to reassign
-```
-
-**Detection**:
-```go
-func FindDuplicateBasePorts(reg *registry.Registry) []BasePortConflict {
-    basePortMap := make(map[int][]ContextInfo)
-
-    // Collect all base ports
-    for projectPath, project := range reg.Projects {
-        for contextName, ctx := range project.Contexts {
-            basePortMap[ctx.BasePort] = append(basePortMap[ctx.BasePort], ...)
-        }
-    }
-
-    // Find conflicts (base ports used by more than one context)
-    var conflicts []BasePortConflict
-    for basePort, contexts := range basePortMap {
-        if len(contexts) > 1 {
-            conflicts = append(conflicts, ...)
-        }
-    }
-
-    return conflicts
-}
-```
-
-#### 2. Port Range Overlaps
-
-Service port ranges from different contexts overlap:
-
-```bash
-$ dual ports
-
-Port range overlap detected:
-  Context 'main' (4100): ports 4101-4103
-  Context 'feature-x' (4102): ports 4103-4105
-  → Overlap at port 4103
-
-Hint: Contexts should be at least 100 ports apart
-```
-
-**Detection**:
-```go
-func CheckPortRangeOverlap(reg *registry.Registry, cfg *config.Config, projectPath string) []PortRangeOverlap {
-    numServices := len(cfg.Services)
-
-    for each pair of contexts:
-        startPort1 := ctx1.BasePort + 1
-        endPort1 := ctx1.BasePort + numServices
-        startPort2 := ctx2.BasePort + 1
-        endPort2 := ctx2.BasePort + numServices
-
-        // Check for overlap
-        if startPort1 <= endPort2 && startPort2 <= endPort1 {
-            // Ranges overlap!
-            overlaps = append(overlaps, ...)
-        }
-}
-```
-
-#### 3. Port In Use
-
-A calculated port is already bound by another process:
-
-```bash
-$ dual pnpm dev
-
-Warning: Port 4101 is already in use
-  Process: node (PID: 12345)
-  User: dev
-  Command: node server.js
-
-Hint: Stop the process or use a different context
-```
-
-**Detection** (cross-platform):
-```go
-func IsPortInUse(port int) bool {
-    // Try to bind to the port
-    listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
-    if err != nil {
-        return true  // Port is in use
-    }
-    listener.Close()
-    return false  // Port is available
-}
-```
-
-### Process Identification
-
-When a port conflict is detected, `dual` attempts to identify the process using the port:
-
-**macOS/Linux** (using `lsof`):
-```bash
-lsof -i :4101 -P -n
-```
-
-**Windows** (using `netstat`):
-```bash
-netstat -ano -p tcp
-```
-
-Parsed output:
-```go
-type ProcessInfo struct {
-    PID     int
-    Name    string
-    Command string
-    User    string
-}
-```
-
-### Smart Port Assignment
-
-When creating a context, `dual` suggests the next conflict-free base port:
-
-```go
-func FindNextAvailableBasePort(reg *registry.Registry, cfg *config.Config, projectPath string) int {
-    usedPorts := collectAllBasePorts(reg)
-    numServices := len(cfg.Services)
-
-    // Start from DefaultBasePort (4100)
-    nextPort := DefaultBasePort
-    for {
-        // Check if base port is available
-        if !usedPorts[nextPort] {
-            // Check if entire port range is clear
-            if !hasRangeOverlap(nextPort, numServices, reg) {
-                return nextPort
-            }
-        }
-        nextPort += PortIncrement  // Try next 100-port block
-    }
-}
-```
-
-This ensures:
-- No duplicate base ports
-- No port range overlaps
-- Adequate spacing between contexts
-
-### Conflict Prevention
-
-When creating a context with a custom port:
-
-```bash
-$ dual context create feature-x 4150
-```
-
-`dual` validates:
-1. Base port not already used
-2. Port range doesn't overlap with existing contexts
-3. All ports in range are available (optional warning)
-
-```go
-func CheckContextPortConflict(reg *registry.Registry, cfg *config.Config, projectPath string, basePort int) error {
-    // Check for duplicate base port
-    for _, project := range reg.Projects {
-        for contextName, context := range project.Contexts {
-            if context.BasePort == basePort {
-                return fmt.Errorf("base port %d already assigned to context '%s'", basePort, contextName)
-            }
-        }
-    }
-
-    // Check for port range overlaps
-    numServices := len(cfg.Services)
-    startNew := basePort + 1
-    endNew := basePort + numServices
-
-    for _, context := range existingContexts {
-        startExisting := context.BasePort + 1
-        endExisting := context.BasePort + numServices
-
-        if startNew <= endExisting && startExisting <= endNew {
-            return fmt.Errorf("port range [%d-%d] overlaps with context '%s'", ...)
-        }
-    }
-
-    return nil
-}
-```
-
-### Usage Commands
-
-```bash
-# View all port assignments and detect conflicts
-dual ports
-
-# Check if a specific port is in use
-dual port 4101
-
-# Create context with automatic port assignment (conflict-free)
-dual context create feature-x
-
-# Create context with specific port (validated)
-dual context create feature-x 4150
-```
 
 ---
 
 ## Design Decisions
 
-### Why Go?
+### Why Hook-Based Architecture?
 
-- **Fast startup**: No runtime overhead like Node.js/Python
-- **Single binary**: Easy distribution, no dependencies
-- **Cross-platform**: Compile for macOS, Linux, Windows
-- **Excellent stdlib**: File I/O, JSON, YAML, exec
-- **Static typing**: Catch errors at compile time
+**Problem**: Different teams need different automation (ports, databases, dependencies, etc.)
 
-### Why Not Modify Files?
-
-**Problem**: Vercel's `vercel pull` overwrites `.env` files
-
-**Solution**: Never write PORT to files, only inject in environment
+**Solution**: Core tool manages worktree lifecycle; users implement custom logic in hooks
 
 **Benefits**:
-- No conflicts with tool-generated files
-- No git diffs for port changes
-- Cleaner separation of concerns
+- Maximum flexibility - implement any workflow
+- Zero assumptions about project structure
+- Easy to customize per-project
+- Users control complexity
 
-**Tradeoff**: Requires wrapping all commands with `dual`
+**Tradeoff**: Requires writing hook scripts, but examples are provided
 
-**Fallback**: `dual sync` for cases where wrapper can't be used
+### Why Project-Local Registry?
 
-### Why Global Registry?
-
-**Alternative**: Store contexts in project
+**Alternative**: Store registry in user home directory (`~/.dual/registry.json`)
 
 **Problem**:
 - Git worktrees share same project root
 - Multiple clones have separate configs
-- Need to track ports across all contexts globally
+- Team collaboration difficult
 
-**Solution**: `~/.dual/registry.json` in user home directory
+**Solution**: `$PROJECT_ROOT/.dual/registry.json` in project directory
 
 **Benefits**:
-- Single source of truth
-- Auto-assign ports without conflicts
+- Single source of truth per project
 - Works across worktrees and clones
+- Each project is isolated
+- Can be shared (but typically .gitignored)
 
-### Why Deterministic Port Formula?
+### Why Not Modify Files?
 
-**Alternative**: Random port assignment
+**Problem**: Tools like `vercel pull` overwrite `.env` files
 
-**Problem**:
-- Ports change between runs
-- Hard to remember/document
-- Breaks bookmarks and scripts
-
-**Solution**: `port = basePort + serviceIndex + 1`
+**Solution**: Encourage using hooks to write to files instead of direct file modification
 
 **Benefits**:
-- Same port every time
-- Easy to predict and document
-- Service order in config defines ports
+- No conflicts with tool-generated files
+- No git diffs for environment changes
+- Cleaner separation of concerns
+- Users control what gets written
+
+**Tradeoff**: Requires hook setup, but provides flexibility
 
 ### Why Support `.dual-context` File?
 
@@ -1371,21 +1156,32 @@ dual context create feature-x 4150
 
 **Tradeoff**: Another thing to manage, but optional
 
+### Why Restrict `dual create` to Project Root?
+
+**Problem**: Running `dual create` from within a worktree can cause confusion
+
+**Solution**: Enforce that `dual create` only runs from the main repository
+
+**Benefits**:
+- Clear mental model: main repo = worktree factory
+- Prevents nested worktrees
+- Avoids registry confusion
+
+**Implementation**: Check if current directory is a worktree before creating
+
 ---
 
 ## Performance Considerations
 
 ### Startup Time
 
-Typical execution time: **< 50ms**
+Typical execution time: **< 100ms**
 
 Breakdown:
-- Load config: ~5ms
-- Detect context: ~10ms (git command)
-- Detect service: ~5ms
-- Load registry: ~5ms
-- Calculate port: <1ms
-- Execute command: ~remaining
+- Load config: ~10ms
+- Detect context: ~15ms (git command)
+- Load registry: ~10ms
+- Hook execution: variable (depends on hook scripts)
 
 ### Optimization Techniques
 
@@ -1398,8 +1194,9 @@ Breakdown:
 
 - **Services per project**: No practical limit (tested up to 100)
 - **Contexts per project**: No practical limit (tested up to 50)
-- **Projects in registry**: No practical limit (tested up to 100)
+- **Projects in registry**: No practical limit
 - **Registry file size**: Stays small (~1KB per project)
+- **Hook execution**: Sequential, scales linearly with number of hooks
 
 ---
 
@@ -1414,7 +1211,18 @@ internal/config/config_test.go
 internal/registry/registry_test.go
 internal/context/detector_test.go
 internal/service/detector_test.go
-internal/service/calculator_test.go
+internal/hooks/executor_test.go
+internal/worktree/manager_test.go
+```
+
+### Integration Tests
+
+End-to-end workflow tests:
+
+```
+test/integration/worktree_lifecycle_test.go
+test/integration/hooks_test.go
+test/integration/config_validation_test.go
 ```
 
 ### Test Coverage
@@ -1423,11 +1231,12 @@ internal/service/calculator_test.go
 - Registry CRUD operations
 - Context detection (with mocks for git)
 - Service detection (with temp directories)
-- Port calculation (pure function)
+- Hook execution (with mock scripts)
+- Worktree creation and deletion
 
 ### Dependency Injection
 
-Context detector uses dependency injection for testability:
+Components use dependency injection for testability:
 
 ```go
 type Detector struct {
@@ -1455,22 +1264,21 @@ detector := &Detector{
 
 ### Potential Improvements
 
-1. **Context Cleanup**: `dual context delete`
-2. **Port Health Check**: Warn if port already in use
-3. **Shell Completions**: Bash/Zsh/Fish completion scripts
-4. **Visual Dashboard**: `dual ui` - web interface
-5. **Service Dependencies**: Define service startup order
-6. **Port Range Validation**: Ensure services fit within base port range
-7. **Configuration Validation**: `dual config validate`
-8. **Migration Tools**: Upgrade config versions
-9. **Telemetry**: Optional usage analytics
+1. **Worktree Templates**: Pre-configured hook sets for common workflows
+2. **Hook Output Parsing**: Parse hook output for structured data
+3. **Parallel Hook Execution**: Run independent hooks in parallel
+4. **Hook Timeouts**: Prevent hung hook scripts
+5. **Visual Dashboard**: `dual ui` - web interface showing all worktrees
+6. **Hook Marketplace**: Share hook scripts with community
+7. **Configuration Validation**: `dual doctor --fix` to repair issues
+8. **Migration Tools**: Upgrade config versions automatically
 
 ### Architecture Extensions
 
 1. **Plugin System**: Allow custom detection strategies
-2. **Hook System**: Pre/post command execution hooks
-3. **Remote Registry**: Share contexts across team
-4. **Watch Mode**: Auto-restart on config changes
+2. **Remote Registry**: Share contexts across team
+3. **Watch Mode**: Auto-detect worktree changes
+4. **Hook Library**: Standard library of reusable hooks
 
 ---
 
@@ -1478,6 +1286,7 @@ detector := &Detector{
 
 - [Cobra](https://github.com/spf13/cobra) - CLI framework
 - [YAML v3](https://github.com/go-yaml/yaml) - YAML parsing
+- [gofrs/flock](https://github.com/gofrs/flock) - File locking
 - [Go stdlib](https://pkg.go.dev/std) - Core functionality
 
 ---

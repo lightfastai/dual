@@ -810,13 +810,13 @@ func loadAndMergeContextEnvs(context1, context2 string) (map[string]string, map[
 		return nil, nil, fmt.Errorf("context %q not found in registry", context2)
 	}
 
-	// Load environments for both contexts
-	env1, err := env.LoadLayeredEnv(projectRoot, cfg, context1, ctx1.EnvOverrides)
+	// Load environments for both contexts (using global overrides)
+	env1, err := env.LoadLayeredEnv(projectRoot, cfg, context1, ctx1.GetEnvOverrides(""))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to load environment for %q: %w", context1, err)
 	}
 
-	env2, err := env.LoadLayeredEnv(projectRoot, cfg, context2, ctx2.EnvOverrides)
+	env2, err := env.LoadLayeredEnv(projectRoot, cfg, context2, ctx2.GetEnvOverrides(""))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to load environment for %q: %w", context2, err)
 	}

@@ -57,12 +57,6 @@ var serviceRemoveCmd = &cobra.Command{
 	Short: "Remove a service from the configuration",
 	Long: `Remove a service from the dual configuration.
 
-WARNING: Removing a service changes port assignments for services that come after it
-alphabetically, as ports are calculated based on alphabetical order.
-
-The command will show which services will have their ports changed and prompt for
-confirmation unless --force is specified.
-
 This command does NOT delete any files or directories.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runServiceRemove,
@@ -295,25 +289,6 @@ func runServiceRemove(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("service %q not found in configuration", serviceName)
 	}
 
-	// Calculate impact of removing this service
-	affectedServices := calculateRemovalImpact(cfg, serviceName)
-
-	// Show warning if removing will affect other services
-	if len(affectedServices) > 0 && !forceRemove {
-		fmt.Printf("Warning: Removing %q will change port assignments:\n", serviceName)
-		for _, impact := range affectedServices {
-			fmt.Printf("  %s: %d → %d (will move to index %d)\n",
-				impact.ServiceName, impact.OldPort, impact.NewPort, impact.NewIndex)
-		}
-		fmt.Println()
-
-		// Prompt for confirmation
-		if !promptConfirm("Continue?") {
-			fmt.Println("Cancelled")
-			return nil
-		}
-	}
-
 	// Remove service from config
 	delete(cfg.Services, serviceName)
 
@@ -326,70 +301,6 @@ func runServiceRemove(cmd *cobra.Command, args []string) error {
 	fmt.Printf("[dual] Service %q removed from config\n", serviceName)
 
 	return nil
-}
-
-type portImpact struct {
-	ServiceName string
-	OldIndex    int
-	NewIndex    int
-	OldPort     int
-	NewPort     int
-}
-
-func calculateRemovalImpact(cfg *config.Config, serviceToRemove string) []portImpact {
-	// Get sorted service names (current state)
-	currentServices := make([]string, 0, len(cfg.Services))
-	for name := range cfg.Services {
-		currentServices = append(currentServices, name)
-	}
-	sort.Strings(currentServices)
-
-	// Get sorted service names after removal (future state)
-	futureServices := make([]string, 0, len(cfg.Services)-1)
-	for _, name := range currentServices {
-		if name != serviceToRemove {
-			futureServices = append(futureServices, name)
-		}
-	}
-
-	// Find services that will have different indices
-	var impacts []portImpact
-	for _, name := range futureServices {
-		oldIndex := -1
-		newIndex := -1
-
-		// Find old index
-		for i, svcName := range currentServices {
-			if svcName == name {
-				oldIndex = i
-				break
-			}
-		}
-
-		// Find new index
-		for i, svcName := range futureServices {
-			if svcName == name {
-				newIndex = i
-				break
-			}
-		}
-
-		// If indices differ, this service is affected
-		if oldIndex != newIndex {
-			// Use a dummy base port for demonstration (4200)
-			// In reality, this varies by context, but the delta is what matters
-			const demoBasePort = 4200
-			impacts = append(impacts, portImpact{
-				ServiceName: name,
-				OldIndex:    oldIndex,
-				NewIndex:    newIndex,
-				OldPort:     demoBasePort + oldIndex + 1,
-				NewPort:     demoBasePort + newIndex + 1,
-			})
-		}
-	}
-
-	return impacts
 }
 
 func promptConfirm(message string) bool {

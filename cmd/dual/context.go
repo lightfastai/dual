@@ -537,8 +537,8 @@ func runContextDelete(cmd *cobra.Command, args []string) error {
 	if ctx.Path != "" {
 		fmt.Printf("  Path: %s\n", ctx.Path)
 	}
-	// Count all env overrides (deprecated + v2)
-	overrideCount := len(ctx.EnvOverrides)
+	// Count all env overrides (v2)
+	overrideCount := 0
 	if ctx.EnvOverridesV2 != nil {
 		overrideCount += len(ctx.EnvOverridesV2.Global)
 		for _, svcOverrides := range ctx.EnvOverridesV2.Services {

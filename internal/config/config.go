@@ -215,12 +215,11 @@ func validateHooks(hooks map[string][]string, projectRoot string) error {
 		"postWorktreeCreate": true,
 		"preWorktreeDelete":  true,
 		"postWorktreeDelete": true,
-		"postEnvChange":      true,
 	}
 
 	for event, scripts := range hooks {
 		if !validEvents[event] {
-			return fmt.Errorf("invalid hook event: %s (valid events: postWorktreeCreate, preWorktreeDelete, postWorktreeDelete, postEnvChange)", event)
+			return fmt.Errorf("invalid hook event: %s (valid events: postWorktreeCreate, preWorktreeDelete, postWorktreeDelete)", event)
 		}
 
 		for _, script := range scripts {

@@ -17,7 +17,6 @@ func TestHookEvent_String(t *testing.T) {
 		{"PostWorktreeCreate", PostWorktreeCreate, "postWorktreeCreate"},
 		{"PreWorktreeDelete", PreWorktreeDelete, "preWorktreeDelete"},
 		{"PostWorktreeDelete", PostWorktreeDelete, "postWorktreeDelete"},
-		{"PostEnvChange", PostEnvChange, "postEnvChange"},
 	}
 
 	for _, tt := range tests {
@@ -38,7 +37,6 @@ func TestHookEvent_IsValid(t *testing.T) {
 		{"Valid: PostWorktreeCreate", PostWorktreeCreate, true},
 		{"Valid: PreWorktreeDelete", PreWorktreeDelete, true},
 		{"Valid: PostWorktreeDelete", PostWorktreeDelete, true},
-		{"Valid: PostEnvChange", PostEnvChange, true},
 		{"Invalid: empty", HookEvent(""), false},
 		{"Invalid: unknown", HookEvent("unknownEvent"), false},
 	}
