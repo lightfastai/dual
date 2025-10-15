@@ -151,6 +151,23 @@ Examples:
 	RunE: runEnvDiff,
 }
 
+var envRemapCmd = &cobra.Command{
+	Use:   "remap",
+	Short: "Regenerate service-specific .env files from registry",
+	Long: `Reads environment overrides from registry and generates .dual/.local/service/<service>/.env files.
+
+This command regenerates all service-specific environment files based on the current
+registry state. This is useful if you've manually edited the registry or if the
+files are out of sync.
+
+The files are automatically generated when you use 'dual env set' or 'dual env unset',
+so you typically don't need to run this command manually.
+
+Examples:
+  dual env remap    # Regenerate all service env files`,
+	RunE: runEnvRemap,
+}
+
 func init() {
 	rootCmd.AddCommand(envCmd)
 
@@ -161,6 +178,7 @@ func init() {
 	envCmd.AddCommand(envExportCmd)
 	envCmd.AddCommand(envCheckCmd)
 	envCmd.AddCommand(envDiffCmd)
+	envCmd.AddCommand(envRemapCmd)
 
 	// Flags for show command
 	envShowCmd.Flags().BoolVar(&envShowValues, "values", false, "show all variable values")
@@ -438,6 +456,12 @@ func runEnvSet(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to save registry: %w", err)
 	}
 
+	// Generate service env files
+	if err := env.GenerateServiceEnvFiles(cfg, reg, projectRoot, projectIdentifier, contextName); err != nil {
+		fmt.Fprintf(os.Stderr, "[dual] Warning: failed to regenerate service env files: %v\n", err)
+		// Don't fail the command - the override is saved, env files are optional
+	}
+
 	// Show success message
 	if envServiceFlag != "" {
 		fmt.Printf("Set %s=%s for service '%s' in context '%s'\n", key, value, envServiceFlag, contextName)
@@ -526,6 +550,12 @@ func runEnvUnset(cmd *cobra.Command, args []string) error {
 	// Save registry
 	if err := reg.SaveRegistry(); err != nil {
 		return fmt.Errorf("failed to save registry: %w", err)
+	}
+
+	// Generate service env files
+	if err := env.GenerateServiceEnvFiles(cfg, reg, projectRoot, projectIdentifier, contextName); err != nil {
+		fmt.Fprintf(os.Stderr, "[dual] Warning: failed to regenerate service env files: %v\n", err)
+		// Don't fail the command - the override is removed, env files are optional
 	}
 
 	// Show success message
@@ -890,4 +920,52 @@ func displayRemovedVars(removed map[string]string) {
 		fmt.Printf("  %s=%s\n", k, removed[k])
 	}
 	fmt.Println()
+}
+
+func runEnvRemap(cmd *cobra.Command, args []string) error {
+	// Initialize logger
+	logger.Init(envVerbose, envDebug)
+
+	// Load config
+	cfg, projectRoot, err := config.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w\nHint: Run 'dual init' to create a configuration file", err)
+	}
+
+	// Detect context
+	contextName, err := context.DetectContext()
+	if err != nil {
+		return fmt.Errorf("failed to detect context: %w", err)
+	}
+
+	// Get project identifier
+	projectIdentifier, err := config.GetProjectIdentifier(projectRoot)
+	if err != nil {
+		return fmt.Errorf("failed to get project identifier: %w", err)
+	}
+
+	// Load registry
+	reg, err := registry.LoadRegistry(projectIdentifier)
+	if err != nil {
+		return fmt.Errorf("failed to load registry: %w", err)
+	}
+	defer reg.Close()
+
+	// Check if context exists
+	_, err = reg.GetContext(projectIdentifier, contextName)
+	if err != nil {
+		return fmt.Errorf("context %q not found in registry\nHint: Run 'dual context create' to create this context", contextName)
+	}
+
+	fmt.Fprintf(os.Stderr, "[dual] Regenerating service env files for context '%s'...\n", contextName)
+
+	// Generate service env files
+	if err := env.GenerateServiceEnvFiles(cfg, reg, projectRoot, projectIdentifier, contextName); err != nil {
+		return fmt.Errorf("failed to generate service env files: %w", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "[dual] Service env files regenerated successfully\n")
+	fmt.Fprintf(os.Stderr, "  Files written to: %s/.dual/.local/service/<service>/.env\n", projectRoot)
+
+	return nil
 }

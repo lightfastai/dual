@@ -12,6 +12,9 @@ const (
 
 	// PostWorktreeDelete is triggered after a worktree is deleted
 	PostWorktreeDelete HookEvent = "postWorktreeDelete"
+
+	// PostEnvChange is triggered after environment variables are changed
+	PostEnvChange HookEvent = "postEnvChange"
 )
 
 // String returns the string representation of a HookEvent
@@ -22,7 +25,7 @@ func (e HookEvent) String() string {
 // IsValid checks if a HookEvent is one of the recognized events
 func (e HookEvent) IsValid() bool {
 	switch e {
-	case PostWorktreeCreate, PreWorktreeDelete, PostWorktreeDelete:
+	case PostWorktreeCreate, PreWorktreeDelete, PostWorktreeDelete, PostEnvChange:
 		return true
 	default:
 		return false

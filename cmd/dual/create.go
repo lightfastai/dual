@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/lightfastai/dual/internal/config"
+	"github.com/lightfastai/dual/internal/env"
 	"github.com/lightfastai/dual/internal/hooks"
 	"github.com/lightfastai/dual/internal/registry"
 	"github.com/spf13/cobra"
@@ -132,6 +133,12 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Fprintf(os.Stderr, "[dual] Created context: %s\n", branchName)
+
+	// Generate initial service env files
+	if err := env.GenerateServiceEnvFiles(cfg, reg, projectRoot, projectIdentifier, branchName); err != nil {
+		fmt.Fprintf(os.Stderr, "[dual] Warning: failed to generate service env files: %v\n", err)
+		// Don't fail the command - worktree is created, env files are optional
+	}
 
 	// Prepare hook context
 	hookCtx := hooks.HookContext{

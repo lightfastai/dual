@@ -54,3 +54,7 @@ node_modules/
 .dual/registry.json
 .dual/registry.json.lock
 .dual/registry.json.tmp
+
+# Dual auto-generated local files (should not be committed)
+# Service-specific environment files generated from registry overrides
+.dual/.local/

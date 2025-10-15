@@ -9,6 +9,7 @@ import (
 
 	"github.com/lightfastai/dual/internal/config"
 	"github.com/lightfastai/dual/internal/context"
+	"github.com/lightfastai/dual/internal/env"
 	"github.com/lightfastai/dual/internal/hooks"
 	"github.com/lightfastai/dual/internal/registry"
 	"github.com/spf13/cobra"
@@ -122,6 +123,12 @@ func runDelete(cmd *cobra.Command, args []string) error {
 	hookCtx.Event = hooks.PreWorktreeDelete
 	if err := hookMgr.Execute(hooks.PreWorktreeDelete, hookCtx); err != nil {
 		return fmt.Errorf("preWorktreeDelete hook failed: %w\nHint: Fix the hook error or use --force to skip", err)
+	}
+
+	// Cleanup service env files before deleting context
+	if err := env.CleanupServiceEnvFiles(projectRoot); err != nil {
+		fmt.Fprintf(os.Stderr, "[dual] Warning: failed to cleanup service env files: %v\n", err)
+		// Don't fail the command - continue with deletion
 	}
 
 	// Delete context from registry
