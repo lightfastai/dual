@@ -114,14 +114,14 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		logger.Verbose("Checking registry...")
 	}
 
-	// Load registry (using projectID so worktrees share the parent repo's registry)
-	// Only load if config was successfully loaded (projectID will be non-empty)
-	if projectID == "" {
+	// Load registry (using projectRoot to construct the correct registry file path)
+	// Only load if config was successfully loaded (projectRoot will be non-empty)
+	if projectRoot == "" {
 		// Skip registry check if config failed to load
 		ctx.Registry = nil
 		result.AddCheck(health.CheckRegistry(ctx))
 	} else {
-		reg, err := registry.LoadRegistry(projectID)
+		reg, err := registry.LoadRegistry(projectRoot)
 		if err != nil {
 			logger.Verbose("Warning: failed to load registry: %v", err)
 			ctx.Registry = nil

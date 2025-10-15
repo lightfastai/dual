@@ -32,6 +32,7 @@ func NewDetector() *Detector {
 
 // IsWorktree checks if the given directory is a git worktree
 // A worktree has a .git file (not directory) pointing to the parent repository
+// This distinguishes from git submodules, which also have a .git file but with different content
 func (d *Detector) IsWorktree(dir string) (bool, error) {
 	gitPath := filepath.Join(dir, ".git")
 
@@ -45,8 +46,30 @@ func (d *Detector) IsWorktree(dir string) (bool, error) {
 		return false, fmt.Errorf("failed to stat .git: %w", err)
 	}
 
-	// Worktrees have .git as a file, not a directory
-	return !info.IsDir(), nil
+	// If .git is a directory, it's a normal repo, not a worktree
+	if info.IsDir() {
+		return false, nil
+	}
+
+	// .git is a file - could be a worktree or submodule
+	// Read the file to distinguish between them
+	content, err := d.readFile(gitPath)
+	if err != nil {
+		return false, fmt.Errorf("failed to read .git file: %w", err)
+	}
+
+	line := strings.TrimSpace(string(content))
+	if !strings.HasPrefix(line, "gitdir: ") {
+		return false, nil
+	}
+
+	// Extract the gitdir path
+	gitdir := strings.TrimPrefix(line, "gitdir: ")
+
+	// Worktrees point to .git/worktrees/<name>
+	// Submodules point to ../.git/modules/<name> or similar
+	// Check if the gitdir contains "/worktrees/"
+	return strings.Contains(gitdir, "/worktrees/") || strings.Contains(gitdir, "\\worktrees\\"), nil
 }
 
 // GetParentRepo returns the path to the parent repository for a worktree

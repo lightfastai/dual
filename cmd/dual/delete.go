@@ -72,8 +72,8 @@ func runDelete(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot delete current context %q\nHint: Switch to a different branch or worktree first", contextName)
 	}
 
-	// Load registry (using projectIdentifier so worktrees share the parent repo's registry)
-	reg, err := registry.LoadRegistry(projectIdentifier)
+	// Load registry (using projectRoot to construct the correct registry file path)
+	reg, err := registry.LoadRegistry(projectRoot)
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
 	}

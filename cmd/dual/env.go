@@ -221,7 +221,7 @@ func runEnvShow(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load registry
-	reg, err := registry.LoadRegistry(projectIdentifier)
+	reg, err := registry.LoadRegistry(projectRoot)
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
 	}
@@ -230,7 +230,7 @@ func runEnvShow(cmd *cobra.Command, args []string) error {
 	// Get context from registry
 	ctx, err := reg.GetContext(projectIdentifier, contextName)
 	if err != nil {
-		return fmt.Errorf("context %q not found in registry\nHint: Run 'dual context create' to create this context", contextName)
+		return fmt.Errorf("context %q not found in registry\nHint: Run 'dual create <branch>' to create a worktree with a context", contextName)
 	}
 
 	// Get environment overrides for the specified service (or global if no service specified)
@@ -413,7 +413,7 @@ func runEnvSet(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load registry
-	reg, err := registry.LoadRegistry(projectIdentifier)
+	reg, err := registry.LoadRegistry(projectRoot)
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
 	}
@@ -422,7 +422,7 @@ func runEnvSet(cmd *cobra.Command, args []string) error {
 	// Check if context exists
 	_, err = reg.GetContext(projectIdentifier, contextName)
 	if err != nil {
-		return fmt.Errorf("context %q not found in registry\nHint: Run 'dual context create' to create this context", contextName)
+		return fmt.Errorf("context %q not found in registry\nHint: Run 'dual create <branch>' to create a worktree with a context", contextName)
 	}
 
 	// If service is specified, validate it exists in config
@@ -512,7 +512,7 @@ func runEnvUnset(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load registry
-	reg, err := registry.LoadRegistry(projectIdentifier)
+	reg, err := registry.LoadRegistry(projectRoot)
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
 	}
@@ -521,7 +521,7 @@ func runEnvUnset(cmd *cobra.Command, args []string) error {
 	// Check if context exists
 	ctx, err := reg.GetContext(projectIdentifier, contextName)
 	if err != nil {
-		return fmt.Errorf("context %q not found in registry\nHint: Run 'dual context create' to create this context", contextName)
+		return fmt.Errorf("context %q not found in registry\nHint: Run 'dual create <branch>' to create a worktree with a context", contextName)
 	}
 
 	// If service is specified, validate it exists in config
@@ -599,7 +599,7 @@ func runEnvExport(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load registry
-	reg, err := registry.LoadRegistry(projectIdentifier)
+	reg, err := registry.LoadRegistry(projectRoot)
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
 	}
@@ -608,7 +608,7 @@ func runEnvExport(cmd *cobra.Command, args []string) error {
 	// Get context from registry
 	ctx, err := reg.GetContext(projectIdentifier, contextName)
 	if err != nil {
-		return fmt.Errorf("context %q not found in registry\nHint: Run 'dual context create' to create this context", contextName)
+		return fmt.Errorf("context %q not found in registry\nHint: Run 'dual create <branch>' to create a worktree with a context", contextName)
 	}
 
 	// If service is specified, validate it exists in config
@@ -936,7 +936,7 @@ func runEnvRemap(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load registry
-	reg, err := registry.LoadRegistry(projectIdentifier)
+	reg, err := registry.LoadRegistry(projectRoot)
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
 	}
@@ -945,7 +945,7 @@ func runEnvRemap(cmd *cobra.Command, args []string) error {
 	// Check if context exists
 	_, err = reg.GetContext(projectIdentifier, contextName)
 	if err != nil {
-		return fmt.Errorf("context %q not found in registry\nHint: Run 'dual context create' to create this context", contextName)
+		return fmt.Errorf("context %q not found in registry\nHint: Run 'dual create <branch>' to create a worktree with a context", contextName)
 	}
 
 	fmt.Fprintf(os.Stderr, "[dual] Regenerating service env files for context '%s'...\n", contextName)

@@ -101,8 +101,8 @@ func contextCompletion(cmd *cobra.Command, args []string, toComplete string) ([]
 		return []string{}, cobra.ShellCompDirectiveNoFileComp
 	}
 
-	// Load registry (using projectIdentifier so worktrees share the parent repo's registry)
-	reg, err := registry.LoadRegistry(projectIdentifier)
+	// Load registry (using projectRoot to construct the correct registry file path)
+	reg, err := registry.LoadRegistry(projectRoot)
 	if err != nil {
 		return []string{}, cobra.ShellCompDirectiveNoFileComp
 	}
