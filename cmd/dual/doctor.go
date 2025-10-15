@@ -15,6 +15,7 @@ import (
 var (
 	doctorAutoFix bool
 	doctorJSON    bool
+	doctorVerbose bool
 )
 
 var doctorCmd = &cobra.Command{
@@ -57,13 +58,14 @@ Examples:
 func init() {
 	doctorCmd.Flags().BoolVar(&doctorAutoFix, "fix", false, "Automatically fix issues where possible")
 	doctorCmd.Flags().BoolVar(&doctorJSON, "json", false, "Output results as JSON")
+	doctorCmd.Flags().BoolVarP(&doctorVerbose, "verbose", "v", false, "Show detailed information for each check")
 	rootCmd.AddCommand(doctorCmd)
 }
 
-//nolint:gocyclo // Health check function naturally has high complexity due to 11 sequential checks
+//nolint:gocyclo // Health check function naturally has high complexity due to 10 sequential checks
 func runDoctor(cmd *cobra.Command, args []string) error {
 	// Initialize logger
-	logger.Init(verboseFlag, debugFlag)
+	logger.Init(doctorVerbose, false)
 
 	// Create result container
 	result := health.NewResult()
@@ -71,17 +73,17 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	// Build checker context
 	ctx := &health.CheckerContext{
 		AutoFix: doctorAutoFix,
-		Verbose: verboseFlag || debugFlag,
+		Verbose: doctorVerbose,
 	}
 
 	// === Check 1: Git Repository ===
-	if verboseFlag {
+	if doctorVerbose {
 		logger.Verbose("Checking git repository...")
 	}
 	result.AddCheck(health.CheckGitRepository())
 
 	// === Check 2: Configuration File ===
-	if verboseFlag {
+	if doctorVerbose {
 		logger.Verbose("Checking configuration file...")
 	}
 
@@ -108,7 +110,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	}
 
 	// === Check 3: Registry ===
-	if verboseFlag {
+	if doctorVerbose {
 		logger.Verbose("Checking registry...")
 	}
 
@@ -131,7 +133,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	}
 
 	// === Check 4: Current Context ===
-	if verboseFlag {
+	if doctorVerbose {
 		logger.Verbose("Checking current context...")
 	}
 
@@ -145,43 +147,37 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	result.AddCheck(health.CheckCurrentContext(ctx))
 
 	// === Check 5: Service Paths ===
-	if verboseFlag {
+	if doctorVerbose {
 		logger.Verbose("Checking service paths...")
 	}
 	result.AddCheck(health.CheckServicePaths(ctx))
 
 	// === Check 6: Environment Files ===
-	if verboseFlag {
+	if doctorVerbose {
 		logger.Verbose("Checking environment files...")
 	}
 	result.AddCheck(health.CheckEnvironmentFiles(ctx))
 
-	// === Check 7: Port Conflicts ===
-	if verboseFlag {
-		logger.Verbose("Checking for port conflicts...")
-	}
-	result.AddCheck(health.CheckPortConflicts(ctx))
-
-	// === Check 8: Worktrees ===
-	if verboseFlag {
+	// === Check 7: Worktrees ===
+	if doctorVerbose {
 		logger.Verbose("Checking worktree configuration...")
 	}
 	result.AddCheck(health.CheckWorktrees(ctx))
 
-	// === Check 9: Orphaned Contexts ===
-	if verboseFlag {
+	// === Check 8: Orphaned Contexts ===
+	if doctorVerbose {
 		logger.Verbose("Checking for orphaned contexts...")
 	}
 	result.AddCheck(health.CheckOrphanedContexts(ctx))
 
-	// === Check 10: Permissions ===
-	if verboseFlag {
+	// === Check 9: Permissions ===
+	if doctorVerbose {
 		logger.Verbose("Checking file permissions...")
 	}
 	result.AddCheck(health.CheckPermissions(ctx))
 
-	// === Check 11: Service Detection ===
-	if verboseFlag {
+	// === Check 10: Service Detection ===
+	if doctorVerbose {
 		logger.Verbose("Checking service detection...")
 	}
 	result.AddCheck(health.CheckServiceDetection(ctx))
@@ -204,7 +200,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		}
 		fmt.Println(jsonOutput)
 	} else {
-		fmt.Print(result.Format(verboseFlag || debugFlag))
+		fmt.Print(result.Format(doctorVerbose))
 	}
 
 	// Exit with appropriate code

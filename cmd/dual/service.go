@@ -10,9 +10,6 @@ import (
 	"strings"
 
 	"github.com/lightfastai/dual/internal/config"
-	"github.com/lightfastai/dual/internal/context"
-	"github.com/lightfastai/dual/internal/registry"
-	"github.com/lightfastai/dual/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -21,7 +18,6 @@ var (
 	serviceEnvFile string
 	// list command flags
 	listJSON     bool
-	listPorts    bool
 	listAbsPaths bool
 	// remove command flags
 	forceRemove bool
@@ -51,7 +47,6 @@ var serviceListCmd = &cobra.Command{
 
 By default, shows service name, path, and env file in a human-readable format.
 Use --json for machine-readable output.
-Use --ports to show port assignments for the current context.
 Use --paths to show absolute paths instead of relative paths.`,
 	Args: cobra.NoArgs,
 	RunE: runServiceList,
@@ -79,7 +74,6 @@ func init() {
 	_ = serviceAddCmd.MarkFlagRequired("path")
 
 	serviceListCmd.Flags().BoolVar(&listJSON, "json", false, "Output in JSON format")
-	serviceListCmd.Flags().BoolVar(&listPorts, "ports", false, "Show port assignments for current context")
 	serviceListCmd.Flags().BoolVar(&listAbsPaths, "paths", false, "Show absolute paths instead of relative paths")
 
 	serviceRemoveCmd.Flags().BoolVarP(&forceRemove, "force", "f", false, "Skip confirmation prompt")
@@ -195,52 +189,20 @@ func runServiceList(cmd *cobra.Command, args []string) error {
 	}
 	sort.Strings(serviceNames)
 
-	// Determine if we need to calculate ports
-	var ports map[string]int
-	var contextName string
-	var projectPath string
-	if listPorts {
-		// Detect context
-		detector := context.NewDetector()
-		contextName, err = detector.DetectContext()
-		if err != nil {
-			return fmt.Errorf("failed to detect context: %w", err)
-		}
-
-		// Get project identifier for registry
-		projectPath, err = config.GetProjectIdentifier(projectRoot)
-		if err != nil {
-			return fmt.Errorf("failed to get project identifier: %w", err)
-		}
-
-		// Load registry (using projectPath so worktrees share the parent repo's registry)
-		reg, err := registry.LoadRegistry(projectPath)
-		if err != nil {
-			return fmt.Errorf("failed to load registry: %w", err)
-		}
-
-		// Calculate all ports
-		ports, err = service.CalculateAllPorts(cfg, reg, projectPath, contextName)
-		if err != nil {
-			return fmt.Errorf("failed to calculate ports: %w\nHint: Run 'dual context create %s' to create the context", err, contextName)
-		}
-	}
-
 	// Output in requested format
 	if listJSON {
-		return outputListJSON(cfg, projectRoot, serviceNames, ports)
+		return outputListJSON(cfg, projectRoot, serviceNames)
 	}
 
-	return outputListHuman(cfg, projectRoot, serviceNames, contextName, ports)
+	return outputListHuman(cfg, projectRoot, serviceNames)
 }
 
-func outputListJSON(cfg *config.Config, projectRoot string, serviceNames []string, ports map[string]int) error {
+func outputListJSON(cfg *config.Config, projectRoot string, serviceNames []string) error {
 	type serviceOutput struct {
 		Name         string `json:"name"`
 		Path         string `json:"path"`
 		EnvFile      string `json:"envFile,omitempty"`
 		AbsolutePath string `json:"absolutePath,omitempty"`
-		Port         int    `json:"port,omitempty"`
 	}
 
 	output := struct {
@@ -261,10 +223,6 @@ func outputListJSON(cfg *config.Config, projectRoot string, serviceNames []strin
 			svcOut.AbsolutePath = filepath.Join(projectRoot, svc.Path)
 		}
 
-		if ports != nil {
-			svcOut.Port = ports[name]
-		}
-
 		output.Services = append(output.Services, svcOut)
 	}
 
@@ -277,17 +235,8 @@ func outputListJSON(cfg *config.Config, projectRoot string, serviceNames []strin
 	return nil
 }
 
-func outputListHuman(cfg *config.Config, projectRoot string, serviceNames []string, contextName string, ports map[string]int) error {
-	if ports != nil {
-		// Get the base port from the first service's port
-		basePort := 0
-		if len(serviceNames) > 0 {
-			basePort = ports[serviceNames[0]] - 1
-		}
-		fmt.Printf("Services (context: %s, base: %d):\n", contextName, basePort)
-	} else {
-		fmt.Println("Services in dual.config.yml:")
-	}
+func outputListHuman(cfg *config.Config, projectRoot string, serviceNames []string) error {
+	fmt.Println("Services in dual.config.yml:")
 
 	// Calculate column widths for alignment
 	maxNameLen := 0
@@ -314,12 +263,10 @@ func outputListHuman(cfg *config.Config, projectRoot string, serviceNames []stri
 			pathStr = filepath.Join(projectRoot, svc.Path)
 		}
 
-		// Format: name (padded) path (padded) [envfile or port]
+		// Format: name (padded) path (padded) [envfile]
 		fmt.Printf("  %-*s  %-*s", maxNameLen, name, maxPathLen, pathStr)
 
-		if ports != nil {
-			fmt.Printf("  Port: %d", ports[name])
-		} else if svc.EnvFile != "" {
+		if svc.EnvFile != "" {
 			fmt.Printf("  %s", svc.EnvFile)
 		}
 		fmt.Println()

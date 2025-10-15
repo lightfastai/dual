@@ -11,7 +11,6 @@ import (
 
 	"github.com/lightfastai/dual/internal/config"
 	"github.com/lightfastai/dual/internal/context"
-	"github.com/lightfastai/dual/internal/ports"
 	"github.com/lightfastai/dual/internal/registry"
 	"github.com/lightfastai/dual/internal/service"
 	"github.com/lightfastai/dual/internal/worktree"
@@ -183,7 +182,6 @@ func CheckCurrentContext(ctx *CheckerContext) Check {
 		if err == nil {
 			details := []string{
 				fmt.Sprintf("Name: %s", ctx.CurrentContext),
-				fmt.Sprintf("Base port: %d", regCtx.BasePort),
 				fmt.Sprintf("Created: %s", regCtx.Created.Format("2006-01-02 15:04:05")),
 			}
 			if regCtx.Path != "" {
@@ -310,50 +308,6 @@ func CheckEnvironmentFiles(ctx *CheckerContext) Check {
 		WithDetails(validFiles...)
 }
 
-// CheckPortConflicts detects port conflicts
-func CheckPortConflicts(ctx *CheckerContext) Check {
-	check := NewCheck("Port Conflicts", StatusPass, "")
-
-	if ctx.Registry == nil || ctx.Config == nil {
-		return check.WithStatus(StatusWarn).WithMessage("Cannot check port conflicts without registry and config")
-	}
-
-	var issues []string
-
-	// Check for duplicate base ports
-	duplicates := ports.FindDuplicateBasePorts(ctx.Registry)
-	if len(duplicates) > 0 {
-		for _, dup := range duplicates {
-			contexts := []string{}
-			for _, ctxInfo := range dup.Contexts {
-				contexts = append(contexts, fmt.Sprintf("%s:%s", ctxInfo.ProjectPath, ctxInfo.ContextName))
-			}
-			issues = append(issues, fmt.Sprintf("Base port %d assigned to multiple contexts: %s", dup.BasePort, strings.Join(contexts, ", ")))
-		}
-	}
-
-	// Check for port range overlaps in current project
-	if ctx.ProjectID != "" {
-		overlaps, err := ports.CheckPortRangeOverlap(ctx.Registry, ctx.Config, ctx.ProjectID)
-		if err == nil && len(overlaps) > 0 {
-			for _, overlap := range overlaps {
-				issues = append(issues, fmt.Sprintf("Port range overlap between contexts '%s' [%d-%d] and '%s' [%d-%d]",
-					overlap.Context1.ContextName, overlap.StartPort1, overlap.EndPort1,
-					overlap.Context2.ContextName, overlap.StartPort2, overlap.EndPort2))
-			}
-		}
-	}
-
-	if len(issues) > 0 {
-		return check.
-			WithStatus(StatusError).
-			WithMessage(fmt.Sprintf("Found %d port conflict(s)", len(issues))).
-			WithDetails(issues...).
-			WithFixAction("Run 'dual ports conflicts' to see details and resolve conflicts")
-	}
-
-	return check.WithMessage("No port conflicts detected")
-}
 
 // CheckWorktrees validates worktree configuration
 func CheckWorktrees(ctx *CheckerContext) Check {
@@ -548,24 +502,14 @@ func CheckServiceDetection(ctx *CheckerContext) Check {
 			WithError(err)
 	}
 
-	// Calculate port for detected service
-	if ctx.CurrentContext != "" && ctx.ProjectID != "" && ctx.Registry != nil {
-		port, err := service.CalculatePort(ctx.Config, ctx.Registry, ctx.ProjectID, ctx.CurrentContext, serviceName)
-		if err == nil {
-			details := []string{
-				fmt.Sprintf("Current directory: %s", cwd),
-				fmt.Sprintf("Detected service: %s", serviceName),
-				fmt.Sprintf("Calculated port: %d", port),
-			}
-			return check.
-				WithMessage(fmt.Sprintf("Service '%s' detected successfully", serviceName)).
-				WithDetails(details...)
-		}
+	details := []string{
+		fmt.Sprintf("Current directory: %s", cwd),
+		fmt.Sprintf("Detected service: %s", serviceName),
 	}
 
 	return check.
 		WithMessage(fmt.Sprintf("Service '%s' detected successfully", serviceName)).
-		WithDetails(fmt.Sprintf("Current directory: %s", cwd))
+		WithDetails(details...)
 }
 
 // Helper to update status

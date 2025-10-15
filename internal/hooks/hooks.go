@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 
 	"github.com/lightfastai/dual/internal/config"
 )
@@ -96,27 +95,9 @@ func (m *Manager) buildEnv(ctx HookContext) []string {
 		fmt.Sprintf("DUAL_CONTEXT_NAME=%s", ctx.ContextName),
 		fmt.Sprintf("DUAL_CONTEXT_PATH=%s", ctx.ContextPath),
 		fmt.Sprintf("DUAL_PROJECT_ROOT=%s", ctx.ProjectRoot),
-		fmt.Sprintf("DUAL_BASE_PORT=%d", ctx.BasePort),
-	}
-
-	// Add service-specific port variables
-	for serviceName, port := range ctx.ServicePorts {
-		// Normalize service name for env var (replace hyphens with underscores, uppercase)
-		envVarName := normalizeServiceName(serviceName)
-		env = append(env, fmt.Sprintf("DUAL_PORT_%s=%d", envVarName, port))
 	}
 
 	return env
-}
-
-// normalizeServiceName converts a service name to a valid environment variable suffix
-// Example: "my-api" -> "MY_API", "web" -> "WEB"
-func normalizeServiceName(name string) string {
-	// Replace hyphens with underscores
-	normalized := strings.ReplaceAll(name, "-", "_")
-	// Convert to uppercase
-	normalized = strings.ToUpper(normalized)
-	return normalized
 }
 
 // ExecuteWithFallback runs hooks but continues even if they fail, logging errors

@@ -1,7 +1,6 @@
 package integration
 
 import (
-	"path/filepath"
 	"testing"
 )
 
@@ -176,7 +175,7 @@ func TestConfigValidationEmptyServices(t *testing.T) {
 	h.AssertFileContains("dual.config.yml", "services: {}")
 
 	// Context creation should work with empty services
-	stdout, stderr, exitCode = h.RunDual("context", "create", "main", "--base-port", "4100")
+	stdout, stderr, exitCode = h.RunDual("context", "create", "main")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 }
 
@@ -215,27 +214,8 @@ func TestConfigNotFound(t *testing.T) {
 }
 
 // TestConfigSearchUpDirectory tests that config is found in parent directories
-func TestConfigSearchUpDirectory(t *testing.T) {
-	h := NewTestHelper(t)
-	defer h.RestoreHome()
-
-	h.InitGitRepo()
-	h.CreateGitBranch("main")
-	h.RunDual("init")
-
-	// Create nested directory structure
-	h.CreateDirectory("apps/web/src/components")
-	h.RunDual("service", "add", "web", "--path", "apps/web")
-	h.RunDual("context", "create", "main", "--base-port", "4100")
-
-	// Query port from deeply nested directory - should find config in parent
-	stdout, stderr, exitCode := h.RunDualInDir(
-		filepath.Join(h.ProjectDir, "apps/web/src/components"),
-		"port",
-	)
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "4101")
-}
+// REMOVED: This test was specific to port querying functionality which has been removed.
+// The worktree lifecycle manager no longer manages ports.
 
 // TestConfigValidationRelativePathNormalization tests path normalization
 func TestConfigValidationRelativePathNormalization(t *testing.T) {
@@ -275,24 +255,9 @@ func TestConfigValidationServicePathOverlap(t *testing.T) {
 	stdout, stderr, exitCode = h.RunDual("service", "add", "web", "--path", "apps/web")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 
-	// Create context
-	h.RunDual("context", "create", "main", "--base-port", "4100")
-
-	// Test longest match - from apps/web should match "web" service
-	stdout, stderr, exitCode = h.RunDualInDir(
-		filepath.Join(h.ProjectDir, "apps/web"),
-		"port",
-	)
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "4102") // web (alphabetically second)
-
-	// From apps should match "apps" service
-	stdout, stderr, exitCode = h.RunDualInDir(
-		filepath.Join(h.ProjectDir, "apps"),
-		"port",
-	)
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "4101") // apps (alphabetically first)
+	// Verify both services were added successfully
+	h.AssertFileContains("dual.config.yml", "apps:")
+	h.AssertFileContains("dual.config.yml", "web:")
 }
 
 // TestContextValidationInvalidNames tests context name validation
@@ -305,57 +270,21 @@ func TestContextValidationInvalidNames(t *testing.T) {
 	h.RunDual("init")
 
 	// Test context with slashes (should work - git branches can have slashes)
-	stdout, stderr, exitCode := h.RunDual("context", "create", "feature/test", "--base-port", "4100")
+	stdout, stderr, exitCode := h.RunDual("context", "create", "feature/test")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 
-	// Test context with spaces (should work - treated as separate args)
-	// Note: This will only use the first word before the space
-	stdout, stderr, exitCode = h.RunDual("context", "create", "test-context", "--base-port", "4200")
+	// Test context with hyphens (should work)
+	stdout, stderr, exitCode = h.RunDual("context", "create", "test-context")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 }
 
 // TestContextNotRegistered tests error messages when context is not registered
-func TestContextNotRegistered(t *testing.T) {
-	h := NewTestHelper(t)
-	defer h.RestoreHome()
-
-	h.InitGitRepo()
-	h.CreateGitBranch("unregistered-branch")
-	h.RunDual("init")
-
-	h.CreateDirectory("apps/web")
-	h.RunDual("service", "add", "web", "--path", "apps/web")
-
-	// Try to query port without creating context
-	stdout, stderr, exitCode := h.RunDualInDir(
-		filepath.Join(h.ProjectDir, "apps/web"),
-		"port",
-	)
-	h.AssertExitCode(exitCode, 1, stdout+stderr)
-	h.AssertOutputContains(stderr, "context \"unregistered-branch\" not found")
-	h.AssertOutputContains(stderr, "dual context create")
-}
+// REMOVED: This test was specific to port querying functionality which has been removed.
+// The worktree lifecycle manager no longer manages ports.
 
 // TestServiceNotInConfig tests error when service is not in config
-func TestServiceNotInConfig(t *testing.T) {
-	h := NewTestHelper(t)
-	defer h.RestoreHome()
-
-	h.InitGitRepo()
-	h.CreateGitBranch("main")
-	h.RunDual("init")
-
-	h.CreateDirectory("apps/web")
-	h.RunDual("service", "add", "web", "--path", "apps/web")
-	h.RunDual("context", "create", "main", "--base-port", "4100")
-
-	// Try to use --service with non-existent service
-	stdout, stderr, exitCode := h.RunDual("--service", "api", "port")
-	h.AssertExitCode(exitCode, 1, stdout+stderr)
-	h.AssertOutputContains(stderr, "service \"api\" not found")
-	h.AssertOutputContains(stderr, "Available services:")
-	h.AssertOutputContains(stderr, "web")
-}
+// REMOVED: This test was specific to port querying and --service flag functionality which has been removed.
+// The worktree lifecycle manager no longer manages ports or requires service detection for most operations.
 
 // TestConfigWithSpecialCharacters tests service names with special characters
 func TestConfigWithSpecialCharacters(t *testing.T) {
@@ -379,13 +308,8 @@ func TestConfigWithSpecialCharacters(t *testing.T) {
 		h.AssertExitCode(exitCode, 0, stdout+stderr)
 	}
 
-	// Create context and verify all services work
-	h.RunDual("context", "create", "main", "--base-port", "4100")
-
-	stdout, stderr, exitCode := h.RunDual("ports")
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-
+	// Verify all services were added to config
 	for _, serviceName := range testServices {
-		h.AssertOutputContains(stdout, serviceName)
+		h.AssertFileContains("dual.config.yml", serviceName+":")
 	}
 }

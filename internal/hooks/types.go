@@ -7,9 +7,6 @@ const (
 	// PostWorktreeCreate is triggered after a worktree is created
 	PostWorktreeCreate HookEvent = "postWorktreeCreate"
 
-	// PostPortAssign is triggered after ports are assigned to a context
-	PostPortAssign HookEvent = "postPortAssign"
-
 	// PreWorktreeDelete is triggered before a worktree is deleted
 	PreWorktreeDelete HookEvent = "preWorktreeDelete"
 
@@ -25,7 +22,7 @@ func (e HookEvent) String() string {
 // IsValid checks if a HookEvent is one of the recognized events
 func (e HookEvent) IsValid() bool {
 	switch e {
-	case PostWorktreeCreate, PostPortAssign, PreWorktreeDelete, PostWorktreeDelete:
+	case PostWorktreeCreate, PreWorktreeDelete, PostWorktreeDelete:
 		return true
 	default:
 		return false
@@ -45,12 +42,6 @@ type HookContext struct {
 
 	// ProjectRoot is the absolute path to the main project repository
 	ProjectRoot string
-
-	// BasePort is the base port assigned to this context
-	BasePort int
-
-	// ServicePorts maps service names to their assigned ports
-	ServicePorts map[string]int
 }
 
 // HookResult contains the result of executing a hook

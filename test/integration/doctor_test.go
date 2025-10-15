@@ -261,46 +261,8 @@ func TestDoctorCommand(t *testing.T) {
 }
 
 func TestDoctorPortConflicts(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test")
-	}
-
-	h := NewTestHelper(t)
-	defer h.RestoreHome()
-
-	// Initialize git repo
-	h.InitGitRepo()
-	h.CreateGitBranch("main")
-
-	// Initialize dual config
-	h.RunDual("init")
-
-	// Add services
-	h.CreateDirectory("apps/api")
-	h.RunDual("service", "add", "api", "--path", "apps/api")
-
-	// Create contexts with conflicting ports
-	h.RunDual("context", "create", "--name", "ctx1", "--base-port", "4100")
-	h.RunDual("context", "create", "--name", "ctx2", "--base-port", "4100")
-
-	// Run doctor
-	stdout, stderr, exitCode := h.RunDual("doctor")
-
-	output := stdout + stderr
-	assert.Contains(t, output, "Port Conflicts")
-
-	// If registry was created successfully, should detect conflicts
-	if strings.Contains(output, "No port conflicts detected") {
-		// Registry might not have been created - that's okay for this test
-		t.Log("Registry not created, skipping port conflict detection test")
-	} else {
-		// Should have detected the conflict
-		assert.Contains(t, output, "4100")
-		// Exit code should be 2 (errors) if conflicts detected
-		if exitCode == 2 {
-			assert.Contains(t, output, "conflict")
-		}
-	}
+	// REMOVED: This test was specific to port conflict detection functionality which has been removed.
+	// The worktree lifecycle manager no longer manages ports.
 }
 
 func TestDoctorWorktreeValidation(t *testing.T) {

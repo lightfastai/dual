@@ -99,44 +99,14 @@ services:
 	if ctx["name"] == nil {
 		t.Error("context missing name field")
 	}
-	if ctx["basePort"] == nil {
-		t.Error("context missing basePort field")
-	}
 	if ctx["created"] == nil {
 		t.Error("context missing created field")
 	}
 }
 
 // TestContextListWithPorts tests the context list command with --ports flag
-func TestContextListWithPorts(t *testing.T) {
-	h := NewTestHelper(t)
-	defer h.RestoreHome()
-
-	// Initialize git repo and config
-	h.InitGitRepo()
-	h.WriteFile("dual.config.yml", `version: 1
-services:
-  api:
-    path: services/api
-    envFile: services/api/.env
-  web:
-    path: services/web
-    envFile: services/web/.env
-`)
-	h.CreateDirectory("services/api")
-	h.CreateDirectory("services/web")
-
-	// Create a context
-	h.CreateGitBranch("main")
-	stdout, stderr, exitCode := h.RunDual("context", "create", "main", "--base-port", "4100")
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-
-	// Test list with ports
-	stdout, stderr, exitCode = h.RunDual("context", "list", "--ports")
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "api:4101")
-	h.AssertOutputContains(stdout, "web:4102")
-}
+// REMOVED: This test was specific to port listing functionality which has been removed.
+// The worktree lifecycle manager no longer manages ports.
 
 // TestContextListNoContexts tests listing when no contexts exist
 func TestContextListNoContexts(t *testing.T) {
@@ -277,52 +247,8 @@ services:
 }
 
 // TestContextListWithJSONAndPorts tests combining --json and --ports flags
-func TestContextListWithJSONAndPorts(t *testing.T) {
-	h := NewTestHelper(t)
-	defer h.RestoreHome()
-
-	// Initialize git repo and config
-	h.InitGitRepo()
-	h.WriteFile("dual.config.yml", `version: 1
-services:
-  api:
-    path: services/api
-    envFile: services/api/.env
-  web:
-    path: services/web
-    envFile: services/web/.env
-`)
-	h.CreateDirectory("services/api")
-	h.CreateDirectory("services/web")
-
-	// Create a context
-	h.CreateGitBranch("main")
-	stdout, stderr, exitCode := h.RunDual("context", "create", "main", "--base-port", "4100")
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-
-	// Test JSON output with ports
-	stdout, stderr, exitCode = h.RunDual("context", "list", "--json", "--ports")
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-
-	// Parse JSON
-	var result map[string]interface{}
-	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
-		t.Fatalf("failed to parse JSON output: %v\nOutput: %s", err, stdout)
-	}
-
-	contexts := result["contexts"].([]interface{})
-	ctx := contexts[0].(map[string]interface{})
-
-	// Verify ports field exists
-	if ctx["ports"] == nil {
-		t.Error("context missing ports field with --ports flag")
-	}
-
-	ports := ctx["ports"].(map[string]interface{})
-	if ports["api"] == nil || ports["web"] == nil {
-		t.Error("ports field missing service entries")
-	}
-}
+// REMOVED: This test was specific to port listing functionality which has been removed.
+// The worktree lifecycle manager no longer manages ports.
 
 // TestContextDeleteShowsInfo tests that delete shows context info before deletion
 func TestContextDeleteShowsInfo(t *testing.T) {
@@ -341,11 +267,11 @@ services:
 
 	// Create two contexts
 	h.CreateGitBranch("main")
-	stdout, stderr, exitCode := h.RunDual("context", "create", "main", "--base-port", "4100")
+	stdout, stderr, exitCode := h.RunDual("context", "create", "main")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 
 	h.CreateGitBranch("feature-a")
-	stdout, stderr, exitCode = h.RunDual("context", "create", "feature-a", "--base-port", "4200")
+	stdout, stderr, exitCode = h.RunDual("context", "create", "feature-a")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 
 	// Switch back to main
@@ -355,7 +281,6 @@ services:
 	stdout, stderr, exitCode = h.RunDual("context", "delete", "feature-a", "--force")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 	h.AssertOutputContains(stdout, "About to delete context: feature-a")
-	h.AssertOutputContains(stdout, "Base Port: 4200")
 }
 
 // TestContextListSorting tests that contexts are listed in alphabetical order

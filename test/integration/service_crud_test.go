@@ -73,24 +73,9 @@ services:
 		}
 	})
 
-	t.Run("list services with ports", func(t *testing.T) {
-		// Initialize git repo and create context
-		h.InitGitRepo()
-		h.CreateGitBranch("main")
-
-		// Create a context
-		h.CreateGitBranch("feature-test")
-		_, stderr, exitCode := h.RunDual("context", "create", "feature-test")
-		h.AssertExitCode(exitCode, 0, stderr)
-
-		// List with ports
-		stdout, stderr, exitCode := h.RunDual("service", "list", "--ports")
-		h.AssertExitCode(exitCode, 0, stderr)
-		h.AssertOutputContains(stdout, "Services (context: feature-test")
-		h.AssertOutputContains(stdout, "Port:")
-		// Services should be listed with their calculated ports
-		// auth = base+1, deus = base+2, www = base+3
-	})
+	// REMOVED: test "list services with ports" - dual no longer manages ports
+	// Port management has been removed from dual. Users can implement custom
+	// port logic in hooks if needed.
 
 	t.Run("list services with absolute paths", func(t *testing.T) {
 		stdout, stderr, exitCode := h.RunDual("service", "list", "--paths")
@@ -211,34 +196,7 @@ services:
 		h.AssertOutputNotContains(stdout, "deus")
 	})
 
-	t.Run("remove service shows port impact warning", func(t *testing.T) {
-		// Initialize config
-		h.WriteFile("dual.config.yml", `version: 1
-services:
-  www:
-    path: apps/www
-    envFile: .vercel/.env.development.local
-  deus:
-    path: apps/deus
-    envFile: .vercel/.env.development.local
-  auth:
-    path: apps/auth
-    envFile: .vercel/.env.development.local
-`)
-
-		// Create service directories
-		h.CreateDirectory("apps/www")
-		h.CreateDirectory("apps/deus")
-		h.CreateDirectory("apps/auth")
-
-		// Simulate "no" response by providing no input (should fail without --force)
-		// We can't test interactive prompts easily, so we'll just test with --force
-		// and verify the warning would have been shown
-		stdout, stderr, exitCode := h.RunDual("service", "remove", "deus", "--force")
-		h.AssertExitCode(exitCode, 0, stderr)
-		// Note: Warning is only shown without --force, so we can't verify it here
-		h.AssertOutputContains(stdout, "removed from config")
-	})
+	// REMOVED: test "remove service shows port impact warning" - dual no longer manages ports
 
 	t.Run("remove non-existent service fails", func(t *testing.T) {
 		// Initialize config
@@ -277,42 +235,7 @@ services:
 		h.AssertOutputContains(stdout, "No services configured")
 	})
 
-	t.Run("remove service from middle affects subsequent ports", func(t *testing.T) {
-		// Initialize config with 4 services (alphabetically: aaa, bbb, ccc, ddd)
-		h.WriteFile("dual.config.yml", `version: 1
-services:
-  aaa:
-    path: apps/aaa
-    envFile: .env
-  bbb:
-    path: apps/bbb
-    envFile: .env
-  ccc:
-    path: apps/ccc
-    envFile: .env
-  ddd:
-    path: apps/ddd
-    envFile: .env
-`)
-		h.CreateDirectory("apps/aaa")
-		h.CreateDirectory("apps/bbb")
-		h.CreateDirectory("apps/ccc")
-		h.CreateDirectory("apps/ddd")
-
-		// Remove bbb (index 1, which will shift ccc and ddd)
-		stdout, stderr, exitCode := h.RunDual("service", "remove", "bbb", "--force")
-		h.AssertExitCode(exitCode, 0, stderr)
-		h.AssertOutputContains(stdout, "removed from config")
-
-		// Verify only 3 services remain
-		stdout, stderr, exitCode = h.RunDual("service", "list")
-		h.AssertExitCode(exitCode, 0, stderr)
-		h.AssertOutputContains(stdout, "Total: 3 services")
-		h.AssertOutputContains(stdout, "aaa")
-		h.AssertOutputNotContains(stdout, "bbb")
-		h.AssertOutputContains(stdout, "ccc")
-		h.AssertOutputContains(stdout, "ddd")
-	})
+	// REMOVED: test "remove service from middle affects subsequent ports" - dual no longer manages ports
 }
 
 // TestServiceFullCRUD tests complete CRUD operations

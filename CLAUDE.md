@@ -4,18 +4,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`dual` is a CLI tool written in Go that manages port assignments across different development contexts (git branches, worktrees, or clones). It eliminates port conflicts when working on multiple features simultaneously by automatically detecting the context and service, then injecting the appropriate PORT environment variable.
+`dual` is a CLI tool written in Go that manages git worktree lifecycle (creation, deletion) with environment remapping via hooks. It enables developers to work on multiple features simultaneously by automating worktree setup and providing a flexible hook system for custom environment configuration (database branches, port assignment, dependency installation, etc.).
 
 ## Core Architecture
 
 ### Command Flow
 
-The tool operates in two primary modes:
+The tool operates primarily in **Management Mode** with direct subcommands:
+- `dual init` - Initialize dual configuration
+- `dual service add/list/remove` - Manage service definitions
+- `dual context create/list/delete` - Manage contexts (deprecated in favor of create/delete)
+- `dual create <branch>` - Create a new worktree with lifecycle hooks
+- `dual delete <context>` - Delete a worktree with cleanup hooks
+- `dual doctor` - Diagnose configuration and registry health
 
-1. **Command Wrapper Mode** (primary): Intercepts arbitrary commands via `dual <command>` and injects PORT
-2. **Management Mode**: Direct subcommands like `dual init`, `dual service add`, `dual context create`, `dual create`, `dual delete`
-
-The main entry point (cmd/dual/main.go:160-234) implements custom argument parsing to distinguish between wrapper mode and management mode before delegating to cobra commands.
+The main entry point (cmd/dual/main.go) uses cobra for command routing and execution.
 
 ### Key Components
 
@@ -29,17 +32,18 @@ The main entry point (cmd/dual/main.go:160-234) implements custom argument parsi
 
 **Registry Layer** (`internal/registry/`)
 - Project-local state in `$PROJECT_ROOT/.dual/registry.json` (per-project, not committed)
-- Structure: projects → contexts → basePort mappings
+- Structure: projects → contexts (name → path, created timestamp)
 - All worktrees of a repository share the parent repo's registry via `GetProjectIdentifier()` normalization
 - Thread-safe with sync.RWMutex for concurrent dual instances
+- File locking with flock to prevent concurrent modifications
 - Atomic writes via temp file + rename pattern
 - Auto-recovers from corruption (returns empty registry)
 
 **Hook System** (`internal/hooks/`)
 - Executes lifecycle hooks at key worktree management points
-- Hook events: `postWorktreeCreate`, `postPortAssign`, `preWorktreeDelete`, `postWorktreeDelete`
+- Hook events: `postWorktreeCreate`, `preWorktreeDelete`, `postWorktreeDelete`
 - Scripts located in `$PROJECT_ROOT/.dual/hooks/` and configured in `dual.config.yml`
-- Receives context via environment variables: `DUAL_EVENT`, `DUAL_CONTEXT_NAME`, `DUAL_CONTEXT_PATH`, `DUAL_PROJECT_ROOT`, `DUAL_BASE_PORT`, `DUAL_PORT_<SERVICE>`
+- Receives context via environment variables: `DUAL_EVENT`, `DUAL_CONTEXT_NAME`, `DUAL_CONTEXT_PATH`, `DUAL_PROJECT_ROOT`
 - Non-zero exit codes fail the operation and halt execution
 
 **Context Detection** (`internal/context/`)
@@ -52,30 +56,13 @@ The main entry point (cmd/dual/main.go:160-234) implements custom argument parsi
 - Uses longest path match for nested service structures
 - Returns `ErrServiceNotDetected` if no match found
 
-**Port Calculation** (`internal/service/calculator.go`)
-- Formula: `port = basePort + serviceIndex + 1`
-- Services ordered alphabetically for determinism (not config order!)
-- Example: basePort 4100 → services: api→4101, web→4102, worker→4103
-
-### Command Wrapper Implementation
-
-The wrapper (cmd/dual/main.go:78-157) follows this sequence:
-1. Load config and detect context
-2. Detect or validate service (supports `--service` override)
-3. Calculate port from registry
-4. Execute command with PORT injected into environment
-5. Stream stdout/stderr in real-time, preserve exit codes
-
 ### Worktree Management Commands
 
 **`dual create <branch>`** - Creates a new git worktree with integrated context setup:
 1. Creates git worktree at configured location (from `worktrees.path` in config)
 2. Names directory using configured pattern (from `worktrees.naming`, defaults to `{branch}`)
 3. Registers context in project-local registry
-4. Assigns base port for the context
-5. Executes `postWorktreeCreate` hooks
-6. Calculates and assigns ports for all services
-7. Executes `postPortAssign` hooks
+4. Executes `postWorktreeCreate` hooks
 
 **`dual delete <context>`** - Deletes a worktree with cleanup:
 1. Validates context exists and is a worktree
@@ -84,16 +71,15 @@ The wrapper (cmd/dual/main.go:78-157) follows this sequence:
 4. Removes context from registry
 5. Executes `postWorktreeDelete` hooks
 
-Both commands integrate with the hook system to enable custom automation (database setup, environment configuration, cleanup tasks, etc.).
+Both commands integrate with the hook system to enable custom automation (database setup, environment configuration, port assignment, cleanup tasks, etc.).
 
 ## Hook System
 
-The dual CLI supports lifecycle hooks that run at key points during worktree management. Hooks enable custom automation like database branch creation, environment setup, and cleanup tasks.
+The dual CLI supports lifecycle hooks that run at key points during worktree management. Hooks enable custom automation like database branch creation, environment setup, port assignment, and cleanup tasks.
 
 ### Hook Events
 
-- **`postWorktreeCreate`**: Runs after creating a git worktree, before port assignment
-- **`postPortAssign`**: Runs after assigning ports to a context
+- **`postWorktreeCreate`**: Runs after creating a git worktree and registering the context
 - **`preWorktreeDelete`**: Runs before deleting a worktree, while files still exist
 - **`postWorktreeDelete`**: Runs after deleting a worktree and removing from registry
 
@@ -117,13 +103,13 @@ worktrees:
 hooks:
   postWorktreeCreate:
     - setup-database.sh
+    - setup-environment.sh
     - install-dependencies.sh
-  postPortAssign:
-    - update-env-files.sh
   preWorktreeDelete:
     - backup-data.sh
-  postWorktreeDelete:
     - cleanup-database.sh
+  postWorktreeDelete:
+    - notify-team.sh
 ```
 
 ### Hook Environment Variables
@@ -134,32 +120,51 @@ Hook scripts receive the following environment variables:
 - **`DUAL_CONTEXT_NAME`**: Context name (usually the branch name)
 - **`DUAL_CONTEXT_PATH`**: Absolute path to the worktree directory
 - **`DUAL_PROJECT_ROOT`**: Absolute path to the main repository
-- **`DUAL_BASE_PORT`**: Base port assigned to this context
-- **`DUAL_PORT_<SERVICE>`**: Port for each service (e.g., `DUAL_PORT_WEB=4101`, `DUAL_PORT_API=4102`)
 
-### Hook Script Example
+### Hook Script Examples
 
+**Example 1: Custom Port Assignment**
+```bash
+#!/bin/bash
+# .dual/hooks/setup-environment.sh
+
+set -e
+
+echo "Setting up environment for: $DUAL_CONTEXT_NAME"
+
+# Calculate port based on context name hash
+BASE_PORT=4000
+CONTEXT_HASH=$(echo -n "$DUAL_CONTEXT_NAME" | md5sum | cut -c1-4)
+PORT=$((BASE_PORT + 0x$CONTEXT_HASH % 1000))
+
+# Write to .env file
+cat > "$DUAL_CONTEXT_PATH/.env.local" <<EOF
+PORT=$PORT
+DATABASE_URL=postgresql://localhost/myapp_${DUAL_CONTEXT_NAME}
+EOF
+
+echo "Assigned port: $PORT"
+```
+
+**Example 2: Database Branch Setup**
 ```bash
 #!/bin/bash
 # .dual/hooks/setup-database.sh
 
 set -e
 
-echo "Setting up database for context: $DUAL_CONTEXT_NAME"
-echo "Context path: $DUAL_CONTEXT_PATH"
-echo "Base port: $DUAL_BASE_PORT"
+echo "Creating database branch for: $DUAL_CONTEXT_NAME"
 
-# Create a database branch
-createdb "myapp_${DUAL_CONTEXT_NAME}"
+# Create PlanetScale branch
+pscale branch create myapp "$DUAL_CONTEXT_NAME" --from main
 
-# Update connection string in .env file
-cat > "$DUAL_CONTEXT_PATH/.env" <<EOF
-DATABASE_URL=postgresql://localhost/myapp_${DUAL_CONTEXT_NAME}
-PORT=$DUAL_PORT_WEB
-API_PORT=$DUAL_PORT_API
-EOF
+# Get connection string
+CONNECTION_URL=$(pscale connect myapp "$DUAL_CONTEXT_NAME" --format url)
 
-echo "Database setup complete"
+# Update .env file
+echo "DATABASE_URL=$CONNECTION_URL" >> "$DUAL_CONTEXT_PATH/.env.local"
+
+echo "Database branch created"
 ```
 
 ### Hook Execution Rules
@@ -198,7 +203,7 @@ go test -v -timeout=10m ./test/integration/...
 go test ./...
 
 # Run specific test
-go test -v -run TestCalculatePort ./internal/service/...
+go test -v -run TestCreateWorktree ./test/integration/...
 
 # Run tests with coverage
 go test -cover ./...
@@ -233,26 +238,24 @@ git config --global user.name "Test User"
 
 ### Thread Safety
 - Registry uses `sync.RWMutex` - always lock before accessing Projects map
+- Registry operations use file locking (flock) to prevent concurrent modifications
 - Config saves use atomic write pattern: write temp file → rename
-- Multiple dual instances can run concurrently
+- Multiple dual instances can run concurrently safely
 
 ### Dependency Injection in Tests
-Detectors accept function parameters for git commands, getwd, evalSymlinks to enable mocking in tests. See internal/service/detector.go:20-27.
+Detectors accept function parameters for git commands, getwd, evalSymlinks to enable mocking in tests. See internal/service/detector.go.
 
 ### Security Notes
 - Commands executed via exec.Command are intentional (gosec G204 suppressed)
 - File reads from config paths are trusted (gosec G304 suppressed)
 - Test files excluded from most linters (see .golangci.yml)
 
-### Port Calculation Gotcha
-Services are sorted **alphabetically** for port assignment, not by order in config file. This ensures deterministic ports even if config order changes.
-
 ### Registry Location and Sharing
-The registry is now **project-local** at `$PROJECT_ROOT/.dual/registry.json`, not global. This means:
+The registry is **project-local** at `$PROJECT_ROOT/.dual/registry.json`, not global. This means:
 - Each project has its own registry file
 - All worktrees of a repository share the parent repo's registry (normalized via `GetProjectIdentifier()`)
-- The registry should be added to `.gitignore` to avoid committing port assignments
-- Migration from global `~/.dual/registry.json` is not automatic - contexts must be recreated
+- The registry should be added to `.gitignore` to avoid committing context mappings
+- File locking ensures concurrent dual operations don't corrupt the registry
 
 ## Configuration Schema
 
@@ -265,7 +268,7 @@ services:
   # Required: Map of service name to configuration
   web:
     path: ./apps/web           # Required: relative path from project root
-    envFile: .env.local        # Optional: env file to update (deprecated - use hooks)
+    envFile: .env.local        # Optional: env file path (for reference)
   api:
     path: ./apps/api
 
@@ -278,13 +281,13 @@ hooks:
   # Optional: Lifecycle hooks (scripts relative to .dual/hooks/)
   postWorktreeCreate:
     - setup-database.sh
+    - setup-environment.sh
     - install-dependencies.sh
-  postPortAssign:
-    - update-env-files.sh
   preWorktreeDelete:
     - backup-data.sh
-  postWorktreeDelete:
     - cleanup-database.sh
+  postWorktreeDelete:
+    - notify-team.sh
 ```
 
 ### Configuration Notes
@@ -319,6 +322,7 @@ Use `gh issue create` or `gh issue edit` to manage labels via CLI.
 
 ### User Data
 - Registry: `$PROJECT_ROOT/.dual/registry.json` (project-local, should not be committed - add to .gitignore)
+- Registry lock: `$PROJECT_ROOT/.dual/registry.json.lock` (temporary file during operations)
 - Config: `dual.config.yml` (project root, can be committed)
 - Hooks: `$PROJECT_ROOT/.dual/hooks/` (project-local, can be committed)
 - Context override: `.dual-context` (worktree/clone specific)
@@ -327,10 +331,11 @@ Use `gh issue create` or `gh issue edit` to manage labels via CLI.
 ```
 cmd/dual/          Command definitions (cobra commands)
 internal/config/   Config file parsing and validation
-internal/registry/ Project-local registry operations
+internal/registry/ Project-local registry operations with file locking
 internal/context/  Context detection logic
-internal/service/  Service detection and port calculation
+internal/service/  Service detection
 internal/hooks/    Hook execution and lifecycle management
+internal/worktree/ Worktree operations (creation, deletion)
 test/integration/  End-to-end workflow tests
 ```
 
@@ -346,8 +351,30 @@ All jobs must pass for successful CI run (test-summary job).
 
 ## Design Principles
 
-1. **Vercel-proof**: Never write PORT to files that might be overwritten by external tools
-2. **Transparent**: Always show user what command will execute and what port is used
-3. **Universal**: Works with any command/framework that respects PORT env var
-4. **Deterministic**: Same context + service always yields same port
-5. **Fail-safe**: Corrupt registry or missing config produce helpful errors, not crashes
+1. **Hook-Based Customization**: Core tool manages worktree lifecycle; users implement custom logic (ports, databases, env) in hooks
+2. **Transparent**: Always show user what operations are being performed
+3. **Fail-safe**: Corrupt registry or missing config produce helpful errors, not crashes
+4. **Isolated Contexts**: Each worktree is an independent environment
+5. **Project-Local State**: Registry and hooks are project-specific, not global
+
+## Migration Notes (v0.2.2 → v0.3.0)
+
+**Port Management Removed**: Dual no longer manages ports automatically. If you need port assignment:
+1. Implement custom port logic in a `postWorktreeCreate` hook
+2. Calculate ports based on context name, hash, sequential assignment, etc.
+3. Write PORT to `.env` file or use your preferred method
+
+**Registry Migration**: The registry has moved from `~/.dual/registry.json` to `$PROJECT_ROOT/.dual/registry.json`:
+- Old global registry is no longer used
+- Contexts must be recreated with `dual create`
+- Each project now has its own isolated registry
+
+**Removed Commands**:
+- `dual port` - Port querying (no longer applicable)
+- `dual ports` - List all ports (no longer applicable)
+- Command wrapper mode `dual <command>` - PORT injection (no longer applicable)
+
+**Removed Hook Event**:
+- `postPortAssign` - Port assignment hooks (implement port logic in `postWorktreeCreate` instead)
+
+See `.dual/hooks/README.md` for examples of implementing custom port assignment in hooks.

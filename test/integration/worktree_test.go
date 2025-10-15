@@ -33,7 +33,7 @@ func TestMultiWorktreeSetup(t *testing.T) {
 
 	// Create context for main branch
 	t.Log("Step 2: Create context for main branch")
-	stdout, stderr, exitCode := h.RunDual("context", "create", "main", "--base-port", "4100")
+	stdout, stderr, exitCode := h.RunDual("context", "create", "main")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 	h.AssertOutputContains(stdout, "Created context \"main\"")
 
@@ -51,68 +51,14 @@ func TestMultiWorktreeSetup(t *testing.T) {
 	// This ensures the context is stored in the parent repo's registry,
 	// which all worktrees will share via GetProjectIdentifier normalization
 	t.Log("Step 4: Create context for feature branch from main repo")
-	stdout, stderr, exitCode = h.RunDual("context", "create", "feature/new-feature", "--base-port", "4200")
+	stdout, stderr, exitCode = h.RunDual("context", "create", "feature/new-feature")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 	h.AssertOutputContains(stdout, "Created context \"feature/new-feature\"")
 
-	// Test port queries from main worktree
-	t.Log("Step 5: Query ports from main worktree")
-	stdout, stderr, exitCode = h.RunDualInDir(
-		filepath.Join(h.ProjectDir, "apps/web"),
-		"port",
-	)
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "4102") // main context: 4100 + 1 (web) + 1
-
-	// Test port queries from feature worktree
-	t.Log("Step 6: Query ports from feature worktree")
-	stdout, stderr, exitCode = h.RunDualInDir(
-		filepath.Join(worktreePath, "apps/web"),
-		"port",
-	)
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "4202") // feature context: 4200 + 1 (web) + 1
-
-	// Test command wrapper in both worktrees
-	t.Log("Step 7: Test command wrapper in both worktrees")
-
-	// Create a script to print PORT
-	scriptContent := `#!/bin/sh
-echo "PORT=$PORT"
-`
-	h.WriteFile("print-port.sh", scriptContent)
-	scriptPath := filepath.Join(h.ProjectDir, "print-port.sh")
-	if err := makeExecutable(scriptPath); err != nil {
-		t.Fatalf("failed to make script executable: %v", err)
-	}
-
-	// Run from main worktree
-	stdout, stderr, exitCode = h.RunDualInDir(
-		filepath.Join(h.ProjectDir, "apps/api"),
-		"sh", scriptPath,
-	)
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stderr, "Context: main")
-	h.AssertOutputContains(stderr, "Service: api")
-	h.AssertOutputContains(stderr, "Port: 4101")
-	h.AssertOutputContains(stdout, "PORT=4101")
-
-	// Create the script in the feature worktree too (git worktree has separate working directory)
-	featureScriptPath := filepath.Join(worktreePath, "print-port.sh")
-	if err := os.WriteFile(featureScriptPath, []byte(scriptContent), 0o755); err != nil {
-		t.Fatalf("failed to write script in feature worktree: %v", err)
-	}
-
-	// Run from feature worktree
-	stdout, stderr, exitCode = h.RunDualInDir(
-		filepath.Join(worktreePath, "apps/api"),
-		"sh", featureScriptPath,
-	)
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stderr, "Context: feature/new-feature")
-	h.AssertOutputContains(stderr, "Service: api")
-	h.AssertOutputContains(stderr, "Port: 4201")
-	h.AssertOutputContains(stdout, "PORT=4201")
+	// Verify contexts exist in registry
+	registryContent := h.ReadRegistryJSON()
+	h.AssertOutputContains(registryContent, "main")
+	h.AssertOutputContains(registryContent, "feature/new-feature")
 }
 
 // TestWorktreeContextIsolation tests that contexts are properly isolated across worktrees
@@ -138,35 +84,20 @@ func TestWorktreeContextIsolation(t *testing.T) {
 	t.Log("Creating multiple worktrees")
 
 	// Main worktree context
-	h.RunDual("context", "create", "main", "--base-port", "4100")
+	h.RunDual("context", "create", "main")
 
 	// Feature A worktree
 	worktreeA := h.CreateGitWorktree("feature/a", "worktree-a")
 	// Create context from main repo so it's stored in the shared registry
-	h.RunDual("context", "create", "feature/a", "--base-port", "4200")
+	h.RunDual("context", "create", "feature/a")
 
 	// Feature B worktree
 	worktreeB := h.CreateGitWorktree("feature/b", "worktree-b")
 	// Create context from main repo so it's stored in the shared registry
-	h.RunDual("context", "create", "feature/b", "--base-port", "4300")
+	h.RunDual("context", "create", "feature/b")
 
-	// Verify each worktree uses its own context and port
-	t.Log("Verifying port isolation")
-
-	// Main worktree should use port 4101
-	stdout, stderr, exitCode := h.RunDualInDir(filepath.Join(h.ProjectDir, "apps/web"), "port")
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "4101")
-
-	// Feature A worktree should use port 4201
-	stdout, stderr, exitCode = h.RunDualInDir(filepath.Join(worktreeA, "apps/web"), "port")
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "4201")
-
-	// Feature B worktree should use port 4301
-	stdout, stderr, exitCode = h.RunDualInDir(filepath.Join(worktreeB, "apps/web"), "port")
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "4301")
+	// Verify each worktree has its own context
+	t.Log("Verifying context isolation")
 
 	// Verify all contexts are in the registry
 	registryContent := h.ReadRegistryJSON()
@@ -178,9 +109,19 @@ func TestWorktreeContextIsolation(t *testing.T) {
 	h.AssertOutputContains(registryContent, "main")
 	h.AssertOutputContains(registryContent, "feature/a")
 	h.AssertOutputContains(registryContent, "feature/b")
-	h.AssertOutputContains(registryContent, "4100")
-	h.AssertOutputContains(registryContent, "4200")
-	h.AssertOutputContains(registryContent, "4300")
+
+	// Verify context detection works in each worktree
+	stdout, stderr, exitCode := h.RunDualInDir(h.ProjectDir, "context")
+	h.AssertExitCode(exitCode, 0, stdout+stderr)
+	h.AssertOutputContains(stdout, "Context: main")
+
+	stdout, stderr, exitCode = h.RunDualInDir(worktreeA, "context")
+	h.AssertExitCode(exitCode, 0, stdout+stderr)
+	h.AssertOutputContains(stdout, "Context: feature/a")
+
+	stdout, stderr, exitCode = h.RunDualInDir(worktreeB, "context")
+	h.AssertExitCode(exitCode, 0, stdout+stderr)
+	h.AssertOutputContains(stdout, "Context: feature/b")
 }
 
 // TestWorktreeWithDualContextFile tests using .dual-context file in worktrees
@@ -202,7 +143,7 @@ func TestWorktreeWithDualContextFile(t *testing.T) {
 	h.RunGitCommand("commit", "-m", "Add dual config and service directories")
 
 	// Create context for main
-	h.RunDual("context", "create", "main", "--base-port", "4100")
+	h.RunDual("context", "create", "main")
 
 	// Create a worktree
 	worktreePath := h.CreateGitWorktree("feature/test", "worktree-test")
@@ -210,18 +151,12 @@ func TestWorktreeWithDualContextFile(t *testing.T) {
 	// Create a context for the feature/test branch from main repo
 	// (which git will auto-detect when running from the worktree)
 	// Note: Git branch detection has priority over .dual-context file
-	h.RunDual("context", "create", "feature/test", "--base-port", "5000")
+	h.RunDual("context", "create", "feature/test")
 
-	// Query port - should use feature/test context (detected from git branch)
-	stdout, stderr, exitCode := h.RunDualInDir(filepath.Join(worktreePath, "apps/web"), "port")
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "5001") // feature/test base port 5000 + 0 + 1
-
-	// Verify context detection
-	stdout, stderr, exitCode = h.RunDualInDir(worktreePath, "context")
+	// Verify context detection from worktree
+	stdout, stderr, exitCode := h.RunDualInDir(worktreePath, "context")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 	h.AssertOutputContains(stdout, "Context: feature/test")
-	h.AssertOutputContains(stdout, "Base Port: 5000")
 }
 
 // TestWorktreeServiceDetection tests that service detection works correctly in worktrees
@@ -247,28 +182,21 @@ func TestWorktreeServiceDetection(t *testing.T) {
 	h.RunGitCommand("commit", "-m", "Add dual config and service directories")
 
 	// Create contexts
-	h.RunDual("context", "create", "main", "--base-port", "4100")
+	h.RunDual("context", "create", "main")
 
 	// Create worktree
 	worktreePath := h.CreateGitWorktree("feature/test", "worktree-test")
 	// Create context from main repo so it's stored in the shared registry
-	h.RunDual("context", "create", "feature/test", "--base-port", "4200")
+	h.RunDual("context", "create", "feature/test")
 
-	// Test service detection in main worktree
-	t.Log("Testing service detection in main worktree")
-	stdout, stderr, exitCode := h.RunDualInDir(
-		filepath.Join(h.ProjectDir, "apps/frontend/web"),
-		"port",
-	)
+	// Verify context detection works in both worktrees
+	t.Log("Testing context detection in main worktree")
+	stdout, stderr, exitCode := h.RunDualInDir(h.ProjectDir, "context")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "4102") // web: 4100 + 1 + 1
+	h.AssertOutputContains(stdout, "Context: main")
 
-	// Test service detection in feature worktree
-	t.Log("Testing service detection in feature worktree")
-	stdout, stderr, exitCode = h.RunDualInDir(
-		filepath.Join(worktreePath, "apps/backend/api"),
-		"port",
-	)
+	t.Log("Testing context detection in feature worktree")
+	stdout, stderr, exitCode = h.RunDualInDir(worktreePath, "context")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "4201") // api: 4200 + 0 + 1
+	h.AssertOutputContains(stdout, "Context: feature/test")
 }

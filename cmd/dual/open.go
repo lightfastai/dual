@@ -4,25 +4,23 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
-	"runtime"
+	"path/filepath"
 
 	"github.com/lightfastai/dual/internal/config"
-	"github.com/lightfastai/dual/internal/context"
-	"github.com/lightfastai/dual/internal/registry"
 	"github.com/lightfastai/dual/internal/service"
 	"github.com/spf13/cobra"
 )
 
 var openCmd = &cobra.Command{
 	Use:   "open [service]",
-	Short: "Open a service in the browser",
-	Long: `Opens the URL for a service in the default browser.
+	Short: "Open a service directory in VS Code",
+	Long: `Opens the service directory in VS Code.
 
 If no service is specified, dual will attempt to auto-detect the service
 based on your current working directory.
 
 Examples:
-  dual open www    # Open www service in browser
+  dual open www    # Open www service directory in VS Code
   dual open        # Auto-detect service and open`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runOpen,
@@ -37,12 +35,6 @@ func runOpen(cmd *cobra.Command, args []string) error {
 	cfg, projectRoot, err := config.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w\nHint: Run 'dual init' to create a configuration file", err)
-	}
-
-	// Detect context
-	contextName, err := context.DetectContext()
-	if err != nil {
-		return fmt.Errorf("failed to detect context: %w", err)
 	}
 
 	// Determine service name
@@ -65,62 +57,24 @@ func runOpen(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Get the normalized project identifier for registry operations
-	projectIdentifier, err := config.GetProjectIdentifier(projectRoot)
-	if err != nil {
-		return fmt.Errorf("failed to get project identifier: %w", err)
-	}
-
-	// Load registry (using projectIdentifier so worktrees share the parent repo's registry)
-	reg, err := registry.LoadRegistry(projectIdentifier)
-	if err != nil {
-		return fmt.Errorf("failed to load registry: %w", err)
-	}
-	defer reg.Close()
-
-	// Calculate port
-	port, err := service.CalculatePort(cfg, reg, projectIdentifier, contextName, serviceName)
-	if err != nil {
-		if errors.Is(err, service.ErrContextNotFound) {
-			return fmt.Errorf("context %q not found in registry\nHint: Run 'dual context create' to create this context", contextName)
-		}
-		return fmt.Errorf("failed to calculate port: %w", err)
-	}
-
-	// Construct URL
-	url := fmt.Sprintf("http://localhost:%d", port)
+	// Get service path
+	svc := cfg.Services[serviceName]
+	servicePath := filepath.Join(projectRoot, svc.Path)
 
 	// Print message
-	fmt.Printf("[dual] Opening %s\n", url)
+	fmt.Printf("[dual] Opening %s in VS Code\n", servicePath)
 
-	// Open browser
-	if err := openBrowser(url); err != nil {
-		return fmt.Errorf("failed to open browser: %w", err)
+	// Open in VS Code
+	if err := openVSCode(servicePath); err != nil {
+		return fmt.Errorf("failed to open VS Code: %w", err)
 	}
 
 	return nil
 }
 
-// openBrowser opens a URL in the default browser (cross-platform)
-func openBrowser(url string) error {
-	var cmd *exec.Cmd
-
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", url)
-	case "linux":
-		// Try xdg-open first, fall back to sensible-browser
-		cmd = exec.Command("xdg-open", url)
-		if err := cmd.Run(); err != nil {
-			cmd = exec.Command("sensible-browser", url)
-		} else {
-			return nil
-		}
-	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
-	default:
-		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
-	}
-
+// openVSCode opens a directory in VS Code
+func openVSCode(path string) error {
+	// #nosec G204 - Command execution with user-provided path is intentional
+	cmd := exec.Command("code", path)
 	return cmd.Run()
 }

@@ -27,9 +27,9 @@ func Example() {
 	// Create a new context
 	projectPath := "/home/user/myproject"
 	contextName := "feature-branch"
-	basePort := reg.FindNextAvailablePort()
+	contextPath := "/home/user/myproject/worktree"
 
-	err = reg.SetContext(projectPath, contextName, basePort, "/home/user/myproject/worktree")
+	err = reg.SetContext(projectPath, contextName, contextPath)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -47,22 +47,15 @@ func Example() {
 	}
 
 	fmt.Printf("Context: %s\n", contextName)
-	fmt.Printf("Base Port: %d\n", ctx.BasePort)
 	fmt.Printf("Path: %s\n", ctx.Path)
-
-	// Find next available port
-	nextPort := reg.FindNextAvailablePort()
-	fmt.Printf("Next available port: %d\n", nextPort)
 
 	// Output:
 	// Context: feature-branch
-	// Base Port: 4100
 	// Path: /home/user/myproject/worktree
-	// Next available port: 4200
 }
 
-// ExampleRegistry_FindNextAvailablePort demonstrates port allocation
-func ExampleRegistry_FindNextAvailablePort() {
+// ExampleRegistry_SetContext demonstrates creating contexts
+func ExampleRegistry_SetContext() {
 	// Set up temporary directory as project root
 	projectRoot, err := os.MkdirTemp("", "dual-example")
 	if err != nil {
@@ -73,28 +66,17 @@ func ExampleRegistry_FindNextAvailablePort() {
 	reg, _ := registry.LoadRegistry(projectRoot)
 	defer reg.Close()
 
-	// First port (empty registry)
-	port1 := reg.FindNextAvailablePort()
-	fmt.Printf("First port: %d\n", port1)
+	// Create contexts for different projects
+	reg.SetContext("/project1", "main", "/project1/main")
+	reg.SetContext("/project2", "main", "/project2/main")
+	reg.SetContext("/project3", "feature", "/project3/feature")
 
-	// Create a context
-	reg.SetContext("/project1", "main", port1, "")
-
-	// Second port
-	port2 := reg.FindNextAvailablePort()
-	fmt.Printf("Second port: %d\n", port2)
-
-	// Create another context
-	reg.SetContext("/project2", "main", port2, "")
-
-	// Third port
-	port3 := reg.FindNextAvailablePort()
-	fmt.Printf("Third port: %d\n", port3)
+	// List projects
+	projects := reg.GetAllProjects()
+	fmt.Printf("Total projects: %d\n", len(projects))
 
 	// Output:
-	// First port: 4100
-	// Second port: 4200
-	// Third port: 4300
+	// Total projects: 3
 }
 
 // ExampleRegistry_ListContexts demonstrates listing all contexts for a project
@@ -111,9 +93,9 @@ func ExampleRegistry_ListContexts() {
 
 	// Add multiple contexts
 	projectPath := "/home/user/myproject"
-	reg.SetContext(projectPath, "main", 4100, "")
-	reg.SetContext(projectPath, "feature-1", 4200, "")
-	reg.SetContext(projectPath, "feature-2", 4300, "")
+	reg.SetContext(projectPath, "main", "")
+	reg.SetContext(projectPath, "feature-1", "")
+	reg.SetContext(projectPath, "feature-2", "")
 
 	// List all contexts
 	contexts, err := reg.ListContexts(projectPath)

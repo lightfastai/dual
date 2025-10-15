@@ -11,7 +11,6 @@ import (
 	"github.com/lightfastai/dual/internal/context"
 	"github.com/lightfastai/dual/internal/hooks"
 	"github.com/lightfastai/dual/internal/registry"
-	"github.com/lightfastai/dual/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -88,27 +87,10 @@ func runDelete(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get context: %w", err)
 	}
 
-	// Get service ports for hooks
-	servicePorts, err := service.CalculateAllPorts(cfg, reg, projectIdentifier, contextName)
-	if err != nil {
-		// Non-fatal: continue without service ports
-		servicePorts = make(map[string]int)
-	}
-
 	// Show what will be deleted
 	fmt.Fprintf(os.Stderr, "About to delete worktree:\n")
 	fmt.Fprintf(os.Stderr, "  Context: %s\n", contextName)
 	fmt.Fprintf(os.Stderr, "  Path: %s\n", ctx.Path)
-	fmt.Fprintf(os.Stderr, "  Base Port: %d\n", ctx.BasePort)
-
-	if len(servicePorts) > 0 {
-		fmt.Fprintf(os.Stderr, "  Service Ports: ")
-		portStrs := make([]string, 0, len(servicePorts))
-		for svc, port := range servicePorts {
-			portStrs = append(portStrs, fmt.Sprintf("%s:%d", svc, port))
-		}
-		fmt.Fprintf(os.Stderr, "%s\n", strings.Join(portStrs, ", "))
-	}
 
 	// Confirm deletion unless --force
 	if !deleteForce {
@@ -128,11 +110,9 @@ func runDelete(cmd *cobra.Command, args []string) error {
 
 	// Prepare hook context
 	hookCtx := hooks.HookContext{
-		ContextName:  contextName,
-		ContextPath:  ctx.Path,
-		ProjectRoot:  projectRoot,
-		BasePort:     ctx.BasePort,
-		ServicePorts: servicePorts,
+		ContextName: contextName,
+		ContextPath: ctx.Path,
+		ProjectRoot: projectRoot,
 	}
 
 	// Create hook manager

@@ -36,9 +36,9 @@ func TestConcurrentRegistryWrites(t *testing.T) {
 				// Perform some operations
 				projectPath := "/test/project"
 				contextName := "context"
-				basePort := 4100 + (id * 100) + j
+				contextPath := "/test/project/context"
 
-				if err := reg.SetContext(projectPath, contextName, basePort, ""); err != nil {
+				if err := reg.SetContext(projectPath, contextName, contextPath); err != nil {
 					reg.Close()
 					errors <- err
 					return
@@ -90,9 +90,9 @@ func TestConcurrentRegistryWrites(t *testing.T) {
 		t.Fatalf("Failed to get context after concurrent writes: %v", err)
 	}
 
-	// Should have a valid base port
-	if ctx.BasePort < 4100 {
-		t.Errorf("Invalid base port after concurrent writes: %d", ctx.BasePort)
+	// Should have the correct path
+	if ctx.Path != "/test/project/context" {
+		t.Errorf("Invalid context path after concurrent writes: %s", ctx.Path)
 	}
 }
 
@@ -184,7 +184,7 @@ func TestAtomicWriteFailure(t *testing.T) {
 		t.Fatalf("Failed to load registry: %v", err)
 	}
 
-	if err := reg.SetContext("/test/project", "main", 4100, ""); err != nil {
+	if err := reg.SetContext("/test/project", "main", "/test/project/main"); err != nil {
 		t.Fatalf("Failed to set context: %v", err)
 	}
 
@@ -205,8 +205,8 @@ func TestAtomicWriteFailure(t *testing.T) {
 		t.Fatalf("Failed to get context: %v", err)
 	}
 
-	if ctx.BasePort != 4100 {
-		t.Errorf("Expected base port 4100, got %d", ctx.BasePort)
+	if ctx.Path != "/test/project/main" {
+		t.Errorf("Expected path '/test/project/main', got '%s'", ctx.Path)
 	}
 
 	reg2.Close()

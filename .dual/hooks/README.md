@@ -5,7 +5,6 @@ This directory contains lifecycle hook scripts that run automatically during wor
 ## Hook Events
 
 - **postWorktreeCreate**: Runs after creating a new worktree
-- **postPortAssign**: Runs after assigning ports to a context
 - **preWorktreeDelete**: Runs before deleting a worktree
 - **postWorktreeDelete**: Runs after deleting a worktree
 
@@ -17,8 +16,6 @@ All hook scripts receive these environment variables:
 - `DUAL_CONTEXT_NAME`: Context name (usually the branch name)
 - `DUAL_CONTEXT_PATH`: Absolute path to the worktree directory
 - `DUAL_PROJECT_ROOT`: Absolute path to the main repository
-- `DUAL_BASE_PORT`: Base port assigned to this context
-- `DUAL_PORT_<SERVICE>`: Port for each service (e.g., `DUAL_PORT_WEB=4201`)
 
 ## Configuration
 
@@ -36,7 +33,7 @@ hooks:
 ## Example Hooks
 
 - `create-database-branch.sh`: Creates a PlanetScale database branch
-- `setup-environment.sh`: Updates .env files with port numbers
+- `setup-environment.sh`: Sets up environment files for the worktree
 - `cleanup-database.sh`: Deletes database branches before worktree removal
 
 ## Writing Custom Hooks
@@ -53,10 +50,61 @@ Example:
 set -e
 
 echo "Context: $DUAL_CONTEXT_NAME"
-echo "Port: $DUAL_BASE_PORT"
 echo "Path: $DUAL_CONTEXT_PATH"
+echo "Project Root: $DUAL_PROJECT_ROOT"
 
 # Your custom logic here
+# For example, you could implement custom port assignment:
+# - Read existing contexts from registry
+# - Calculate next available port
+# - Write to .env file
+```
+
+## Common Use Cases
+
+### Custom Port Assignment
+
+Dual no longer manages ports automatically. If you need port management, you can implement it in a hook:
+
+```bash
+#!/bin/bash
+set -e
+
+# Calculate port based on context name hash or sequential assignment
+BASE_PORT=4000
+CONTEXT_HASH=$(echo -n "$DUAL_CONTEXT_NAME" | md5sum | cut -c1-4)
+PORT=$((BASE_PORT + 0x$CONTEXT_HASH % 1000))
+
+# Write to .env file
+echo "PORT=$PORT" > "$DUAL_CONTEXT_PATH/.env.local"
+echo "Assigned port: $PORT"
+```
+
+### Database Branch Creation
+
+Create isolated database branches per worktree (PlanetScale, Neon, etc.):
+
+```bash
+#!/bin/bash
+set -e
+
+# Create branch in your database service
+pscale branch create mydb "$DUAL_CONTEXT_NAME" --from main
+```
+
+### Environment File Setup
+
+Copy and customize environment files for each worktree:
+
+```bash
+#!/bin/bash
+set -e
+
+# Copy base .env to worktree
+cp "$DUAL_PROJECT_ROOT/.env.example" "$DUAL_CONTEXT_PATH/.env.local"
+
+# Customize for this context
+sed -i '' "s/CONTEXT_NAME=.*/CONTEXT_NAME=$DUAL_CONTEXT_NAME/" "$DUAL_CONTEXT_PATH/.env.local"
 ```
 
 ## Testing Hooks
@@ -64,7 +112,7 @@ echo "Path: $DUAL_CONTEXT_PATH"
 Test hooks by running:
 
 ```bash
-# Create a worktree (triggers postWorktreeCreate and postPortAssign)
+# Create a worktree (triggers postWorktreeCreate)
 dual create feature-test
 
 # Delete a worktree (triggers preWorktreeDelete and postWorktreeDelete)

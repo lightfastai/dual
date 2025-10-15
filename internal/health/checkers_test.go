@@ -105,7 +105,7 @@ func TestCheckRegistry(t *testing.T) {
 			Projects: map[string]registry.Project{
 				"/project1": {
 					Contexts: map[string]registry.Context{
-						"main": {BasePort: 4100, Created: time.Now()},
+						"main": {Created: time.Now()},
 					},
 				},
 			},
@@ -132,9 +132,8 @@ func TestCheckCurrentContext(t *testing.T) {
 				projectID: {
 					Contexts: map[string]registry.Context{
 						contextName: {
-							BasePort: 4100,
-							Created:  time.Now(),
-							Path:     "/test/path",
+							Created: time.Now(),
+							Path:    "/test/path",
 						},
 					},
 				},
@@ -278,71 +277,6 @@ func TestCheckEnvironmentFiles(t *testing.T) {
 	})
 }
 
-func TestCheckPortConflicts(t *testing.T) {
-	t.Run("No conflicts", func(t *testing.T) {
-		reg := &registry.Registry{
-			Projects: map[string]registry.Project{
-				"/project1": {
-					Contexts: map[string]registry.Context{
-						"main": {BasePort: 4100},
-						"dev":  {BasePort: 4200},
-					},
-				},
-			},
-		}
-
-		cfg := &config.Config{
-			Services: map[string]config.Service{
-				"api": {Path: "api"},
-				"web": {Path: "web"},
-			},
-		}
-
-		ctx := &CheckerContext{
-			Registry:  reg,
-			Config:    cfg,
-			ProjectID: "/project1",
-		}
-
-		check := CheckPortConflicts(ctx)
-		assert.Equal(t, StatusPass, check.Status)
-		assert.Contains(t, check.Message, "No port conflicts")
-	})
-
-	t.Run("Duplicate base ports", func(t *testing.T) {
-		reg := &registry.Registry{
-			Projects: map[string]registry.Project{
-				"/project1": {
-					Contexts: map[string]registry.Context{
-						"main": {BasePort: 4100},
-					},
-				},
-				"/project2": {
-					Contexts: map[string]registry.Context{
-						"main": {BasePort: 4100},
-					},
-				},
-			},
-		}
-
-		cfg := &config.Config{
-			Services: map[string]config.Service{
-				"api": {Path: "api"},
-			},
-		}
-
-		ctx := &CheckerContext{
-			Registry:  reg,
-			Config:    cfg,
-			ProjectID: "/project1",
-		}
-
-		check := CheckPortConflicts(ctx)
-		assert.Equal(t, StatusError, check.Status)
-		assert.Contains(t, check.Message, "conflict")
-	})
-}
-
 func TestCheckOrphanedContexts(t *testing.T) {
 	t.Run("No orphaned contexts", func(t *testing.T) {
 		tmpDir := t.TempDir()
@@ -354,8 +288,7 @@ func TestCheckOrphanedContexts(t *testing.T) {
 				"/project": {
 					Contexts: map[string]registry.Context{
 						"main": {
-							BasePort: 4100,
-							Path:     contextPath,
+							Path: contextPath,
 						},
 					},
 				},
@@ -377,8 +310,7 @@ func TestCheckOrphanedContexts(t *testing.T) {
 				"/project": {
 					Contexts: map[string]registry.Context{
 						"main": {
-							BasePort: 4100,
-							Path:     "/non/existent/path",
+							Path: "/non/existent/path",
 						},
 					},
 				},

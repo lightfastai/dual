@@ -15,7 +15,6 @@ func TestHookEvent_String(t *testing.T) {
 		want  string
 	}{
 		{"PostWorktreeCreate", PostWorktreeCreate, "postWorktreeCreate"},
-		{"PostPortAssign", PostPortAssign, "postPortAssign"},
 		{"PreWorktreeDelete", PreWorktreeDelete, "preWorktreeDelete"},
 		{"PostWorktreeDelete", PostWorktreeDelete, "postWorktreeDelete"},
 	}
@@ -36,7 +35,6 @@ func TestHookEvent_IsValid(t *testing.T) {
 		want  bool
 	}{
 		{"Valid: PostWorktreeCreate", PostWorktreeCreate, true},
-		{"Valid: PostPortAssign", PostPortAssign, true},
 		{"Valid: PreWorktreeDelete", PreWorktreeDelete, true},
 		{"Valid: PostWorktreeDelete", PostWorktreeDelete, true},
 		{"Invalid: empty", HookEvent(""), false},
@@ -110,12 +108,6 @@ func TestManager_buildEnv(t *testing.T) {
 		ContextName: "feature-branch",
 		ContextPath: "/test/worktree",
 		ProjectRoot: "/test/project",
-		BasePort:    4200,
-		ServicePorts: map[string]int{
-			"web":    4201,
-			"api":    4202,
-			"worker": 4203,
-		},
 	}
 
 	env := manager.buildEnv(ctx)
@@ -125,10 +117,6 @@ func TestManager_buildEnv(t *testing.T) {
 		"DUAL_CONTEXT_NAME=feature-branch": false,
 		"DUAL_CONTEXT_PATH=/test/worktree": false,
 		"DUAL_PROJECT_ROOT=/test/project":  false,
-		"DUAL_BASE_PORT=4200":              false,
-		"DUAL_PORT_WEB=4201":               false,
-		"DUAL_PORT_API=4202":               false,
-		"DUAL_PORT_WORKER=4203":            false,
 	}
 
 	for _, envVar := range env {
@@ -141,28 +129,6 @@ func TestManager_buildEnv(t *testing.T) {
 		if !found {
 			t.Errorf("Expected environment variable not found: %s", expectedVar)
 		}
-	}
-}
-
-func TestNormalizeServiceName(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  string
-	}{
-		{"Simple", "web", "WEB"},
-		{"With hyphen", "my-api", "MY_API"},
-		{"Multiple hyphens", "my-cool-service", "MY_COOL_SERVICE"},
-		{"Already uppercase", "API", "API"},
-		{"Mixed case", "MyService", "MYSERVICE"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := normalizeServiceName(tt.input); got != tt.want {
-				t.Errorf("normalizeServiceName(%q) = %q, want %q", tt.input, got, tt.want)
-			}
-		})
 	}
 }
 
@@ -200,10 +166,6 @@ exit 0
 		ContextName: "test",
 		ContextPath: tempDir,
 		ProjectRoot: tempDir,
-		BasePort:    4200,
-		ServicePorts: map[string]int{
-			"web": 4201,
-		},
 	}
 
 	err := manager.Execute(PostWorktreeCreate, ctx)

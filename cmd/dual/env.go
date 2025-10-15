@@ -23,7 +23,19 @@ var (
 	envShowJSON         bool
 	envExportFormat     string
 	envServiceFlag      string // --service flag for service-specific overrides
+	envVerbose          bool
+	envDebug            bool
 )
+
+// getServiceNames returns a sorted list of service names from config
+func getServiceNames(cfg *config.Config) []string {
+	names := make([]string, 0, len(cfg.Services))
+	for name := range cfg.Services {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
 
 var envCmd = &cobra.Command{
 	Use:   "env",
@@ -170,7 +182,7 @@ func init() {
 
 func runEnvShow(cmd *cobra.Command, args []string) error {
 	// Initialize logger
-	logger.Init(verboseFlag, debugFlag)
+	logger.Init(envVerbose, envDebug)
 
 	// Load config
 	cfg, projectRoot, err := config.LoadConfig()
@@ -365,7 +377,7 @@ func runEnvSet(cmd *cobra.Command, args []string) error {
 	value := args[1]
 
 	// Initialize logger
-	logger.Init(verboseFlag, debugFlag)
+	logger.Init(envVerbose, envDebug)
 
 	// Load config
 	cfg, projectRoot, err := config.LoadConfig()
@@ -458,7 +470,7 @@ func runEnvUnset(cmd *cobra.Command, args []string) error {
 	key := args[0]
 
 	// Initialize logger
-	logger.Init(verboseFlag, debugFlag)
+	logger.Init(envVerbose, envDebug)
 
 	// Load config
 	cfg, projectRoot, err := config.LoadConfig()
@@ -539,7 +551,7 @@ func runEnvUnset(cmd *cobra.Command, args []string) error {
 
 func runEnvExport(cmd *cobra.Command, args []string) error {
 	// Initialize logger
-	logger.Init(verboseFlag, debugFlag)
+	logger.Init(envVerbose, envDebug)
 
 	// Load config
 	cfg, projectRoot, err := config.LoadConfig()
@@ -631,7 +643,7 @@ func runEnvExport(cmd *cobra.Command, args []string) error {
 
 func runEnvCheck(cmd *cobra.Command, args []string) error {
 	// Initialize logger
-	logger.Init(verboseFlag, debugFlag)
+	logger.Init(envVerbose, envDebug)
 
 	// Load config
 	cfg, projectRoot, err := config.LoadConfig()
@@ -723,7 +735,7 @@ func runEnvDiff(cmd *cobra.Command, args []string) error {
 	context2 := args[1]
 
 	// Initialize logger
-	logger.Init(verboseFlag, debugFlag)
+	logger.Init(envVerbose, envDebug)
 
 	// Load environments for both contexts
 	merged1, merged2, err := loadAndMergeContextEnvs(context1, context2)

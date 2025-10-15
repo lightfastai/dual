@@ -37,7 +37,6 @@ type ContextEnvOverrides struct {
 type Context struct {
 	Created        time.Time            `json:"created"`
 	Path           string               `json:"path,omitempty"`
-	BasePort       int                  `json:"basePort"`
 	EnvOverrides   map[string]string    `json:"envOverrides,omitempty"`   // Deprecated: use EnvOverridesV2
 	EnvOverridesV2 *ContextEnvOverrides `json:"envOverridesV2,omitempty"` // New: layered overrides
 }
@@ -49,10 +48,6 @@ var (
 	ErrContextNotFound = errors.New("context not found in project")
 	// ErrLockTimeout is returned when file lock acquisition times out
 	ErrLockTimeout = errors.New("timeout waiting for registry lock")
-	// DefaultBasePort is the starting port for new contexts
-	DefaultBasePort = 4100
-	// PortIncrement is the increment between base ports
-	PortIncrement = 100
 	// LockTimeout is the timeout for acquiring the registry lock
 	LockTimeout = 5 * time.Second
 )
@@ -199,7 +194,7 @@ func (r *Registry) GetContext(projectPath, contextName string) (*Context, error)
 }
 
 // SetContext creates or updates a context for a given project
-func (r *Registry) SetContext(projectPath, contextName string, basePort int, contextPath string) error {
+func (r *Registry) SetContext(projectPath, contextName string, contextPath string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -218,13 +213,15 @@ func (r *Registry) SetContext(projectPath, contextName string, basePort int, con
 	newContext := Context{
 		Created:      time.Now(),
 		Path:         contextPath,
-		BasePort:     basePort,
 		EnvOverrides: make(map[string]string),
 	}
 
 	// Preserve existing overrides if context already exists
 	if exists && existingContext.EnvOverrides != nil {
 		newContext.EnvOverrides = existingContext.EnvOverrides
+	}
+	if exists && existingContext.EnvOverridesV2 != nil {
+		newContext.EnvOverridesV2 = existingContext.EnvOverridesV2
 	}
 
 	project.Contexts[contextName] = newContext
@@ -331,30 +328,6 @@ func (r *Registry) ListContexts(projectPath string) (map[string]Context, error) 
 	return contexts, nil
 }
 
-// FindNextAvailablePort scans all existing base ports and returns the next available one
-// It increments by PortIncrement (default 100)
-func (r *Registry) FindNextAvailablePort() int {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	usedPorts := make(map[int]bool)
-
-	// Collect all used base ports
-	for _, project := range r.Projects {
-		for _, context := range project.Contexts {
-			usedPorts[context.BasePort] = true
-		}
-	}
-
-	// Find next available port starting from DefaultBasePort
-	nextPort := DefaultBasePort
-	for {
-		if !usedPorts[nextPort] {
-			return nextPort
-		}
-		nextPort += PortIncrement
-	}
-}
 
 // GetAllProjects returns a list of all project paths in the registry
 func (r *Registry) GetAllProjects() []string {
