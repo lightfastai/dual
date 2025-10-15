@@ -30,6 +30,20 @@ func TestEnvRemappingWithDualCreate(t *testing.T) {
 	h.RunDual("service", "add", "api", "--path", "apps/api")
 	h.RunDual("service", "add", "worker", "--path", "apps/worker")
 
+	// Add worktrees configuration
+	h.WriteFile("dual.config.yml", `version: 1
+services:
+  web:
+    path: apps/web
+  api:
+    path: apps/api
+  worker:
+    path: apps/worker
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
+`)
+
 	// Commit config and service directories
 	h.WriteFile("apps/web/.gitkeep", "")
 	h.WriteFile("apps/api/.gitkeep", "")
@@ -129,6 +143,18 @@ func TestEnvRemappingRegeneration(t *testing.T) {
 	h.RunDual("service", "add", "web", "--path", "apps/web")
 	h.RunDual("service", "add", "api", "--path", "apps/api")
 
+	// Add worktrees configuration
+	h.WriteFile("dual.config.yml", `version: 1
+services:
+  web:
+    path: apps/web
+  api:
+    path: apps/api
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
+`)
+
 	h.WriteFile("apps/web/.gitkeep", "")
 	h.WriteFile("apps/api/.gitkeep", "")
 	h.RunGitCommand("add", ".")
@@ -189,6 +215,16 @@ func TestEnvRemapCommand(t *testing.T) {
 
 	h.CreateDirectory("apps/web")
 	h.RunDual("service", "add", "web", "--path", "apps/web")
+
+	// Add worktrees configuration
+	h.WriteFile("dual.config.yml", `version: 1
+services:
+  web:
+    path: apps/web
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
+`)
 
 	h.WriteFile("apps/web/.gitkeep", "")
 	h.RunGitCommand("add", ".")
@@ -251,6 +287,16 @@ func TestEnvRemappingCleanup(t *testing.T) {
 
 	h.CreateDirectory("apps/web")
 	h.RunDual("service", "add", "web", "--path", "apps/web")
+
+	// Add worktrees configuration
+	h.WriteFile("dual.config.yml", `version: 1
+services:
+  web:
+    path: apps/web
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
+`)
 
 	h.WriteFile("apps/web/.gitkeep", "")
 	h.RunGitCommand("add", ".")
@@ -324,6 +370,10 @@ schemaVersion: 1
 services:
   web:
     path: apps/web
+
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
 
 hooks:
   postWorktreeCreate:
@@ -426,6 +476,18 @@ func TestEnvRemappingServiceSpecificOnly(t *testing.T) {
 	h.RunDual("service", "add", "web", "--path", "apps/web")
 	h.RunDual("service", "add", "api", "--path", "apps/api")
 
+	// Add worktrees configuration
+	h.WriteFile("dual.config.yml", `version: 1
+services:
+  web:
+    path: apps/web
+  api:
+    path: apps/api
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
+`)
+
 	h.WriteFile("apps/web/.gitkeep", "")
 	h.WriteFile("apps/api/.gitkeep", "")
 	h.RunGitCommand("add", ".")
@@ -472,6 +534,16 @@ func TestEnvRemappingQuotedValues(t *testing.T) {
 	h.CreateDirectory("apps/web")
 	h.RunDual("service", "add", "web", "--path", "apps/web")
 
+	// Add worktrees configuration
+	h.WriteFile("dual.config.yml", `version: 1
+services:
+  web:
+    path: apps/web
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
+`)
+
 	h.WriteFile("apps/web/.gitkeep", "")
 	h.RunGitCommand("add", ".")
 	h.RunGitCommand("commit", "-m", "Add dual config")
@@ -517,6 +589,18 @@ func TestEnvRemappingWithPORT(t *testing.T) {
 	h.CreateDirectory("apps/api")
 	h.RunDual("service", "add", "web", "--path", "apps/web")
 	h.RunDual("service", "add", "api", "--path", "apps/api")
+
+	// Add worktrees configuration
+	h.WriteFile("dual.config.yml", `version: 1
+services:
+  web:
+    path: apps/web
+  api:
+    path: apps/api
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
+`)
 
 	h.WriteFile("apps/web/.gitkeep", "")
 	h.WriteFile("apps/api/.gitkeep", "")

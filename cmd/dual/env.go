@@ -214,14 +214,14 @@ func runEnvShow(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to detect context: %w", err)
 	}
 
-	// Get project identifier
+	// Get project identifier (normalized project root for worktrees)
 	projectIdentifier, err := config.GetProjectIdentifier(projectRoot)
 	if err != nil {
 		return fmt.Errorf("failed to get project identifier: %w", err)
 	}
 
-	// Load registry
-	reg, err := registry.LoadRegistry(projectRoot)
+	// Load registry (use projectIdentifier which points to parent repo for worktrees)
+	reg, err := registry.LoadRegistry(projectIdentifier)
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
 	}
@@ -406,14 +406,14 @@ func runEnvSet(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to detect context: %w", err)
 	}
 
-	// Get project identifier
+	// Get project identifier (normalized project root for worktrees)
 	projectIdentifier, err := config.GetProjectIdentifier(projectRoot)
 	if err != nil {
 		return fmt.Errorf("failed to get project identifier: %w", err)
 	}
 
-	// Load registry
-	reg, err := registry.LoadRegistry(projectRoot)
+	// Load registry (use projectIdentifier which points to parent repo for worktrees)
+	reg, err := registry.LoadRegistry(projectIdentifier)
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
 	}
@@ -505,14 +505,14 @@ func runEnvUnset(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to detect context: %w", err)
 	}
 
-	// Get project identifier
+	// Get project identifier (normalized project root for worktrees)
 	projectIdentifier, err := config.GetProjectIdentifier(projectRoot)
 	if err != nil {
 		return fmt.Errorf("failed to get project identifier: %w", err)
 	}
 
-	// Load registry
-	reg, err := registry.LoadRegistry(projectRoot)
+	// Load registry (use projectIdentifier which points to parent repo for worktrees)
+	reg, err := registry.LoadRegistry(projectIdentifier)
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
 	}
@@ -592,14 +592,14 @@ func runEnvExport(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to detect context: %w", err)
 	}
 
-	// Get project identifier
+	// Get project identifier (normalized project root for worktrees)
 	projectIdentifier, err := config.GetProjectIdentifier(projectRoot)
 	if err != nil {
 		return fmt.Errorf("failed to get project identifier: %w", err)
 	}
 
-	// Load registry
-	reg, err := registry.LoadRegistry(projectRoot)
+	// Load registry (use projectIdentifier which points to parent repo for worktrees)
+	reg, err := registry.LoadRegistry(projectIdentifier)
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
 	}
@@ -786,13 +786,13 @@ func loadAndMergeContextEnvs(context1, context2 string) (map[string]string, map[
 		return nil, nil, fmt.Errorf("failed to load config: %w\nHint: Run 'dual init' to create a configuration file", err)
 	}
 
-	// Get project identifier
+	// Get project identifier (normalized project root for worktrees)
 	projectIdentifier, err := config.GetProjectIdentifier(projectRoot)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get project identifier: %w", err)
 	}
 
-	// Load registry
+	// Load registry (use projectIdentifier which points to parent repo for worktrees)
 	reg, err := registry.LoadRegistry(projectIdentifier)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to load registry: %w", err)
@@ -929,14 +929,14 @@ func runEnvRemap(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to detect context: %w", err)
 	}
 
-	// Get project identifier
+	// Get project identifier (normalized project root for worktrees)
 	projectIdentifier, err := config.GetProjectIdentifier(projectRoot)
 	if err != nil {
 		return fmt.Errorf("failed to get project identifier: %w", err)
 	}
 
-	// Load registry
-	reg, err := registry.LoadRegistry(projectRoot)
+	// Load registry (use projectIdentifier which points to parent repo for worktrees)
+	reg, err := registry.LoadRegistry(projectIdentifier)
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
 	}

@@ -81,7 +81,7 @@ worktrees:
 	t.Log("Step 3: Creating context")
 	stdout, stderr, exitCode = h.RunDual("create", "feature-x")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "Worktree created successfully")
+	h.AssertOutputContains(stderr, "Worktree created successfully")
 
 	// Verify registry was created
 	if !h.RegistryExists() {
@@ -181,7 +181,7 @@ worktrees:
 	// Create a feature branch worktree - dual create will create both the branch and worktree
 	stdout, stderr, exitCode := h.RunDual("create", "feature/awesome-feature")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "Worktree created successfully")
+	h.AssertOutputContains(stderr, "Worktree created successfully")
 
 	// Verify the worktree was created and appears in the list
 	stdout, stderr, exitCode = h.RunDual("list")
