@@ -48,6 +48,26 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w\nHint: Run 'dual init' to create a configuration file", err)
 	}
 
+	// Validate that we're running from the project root
+	currentDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current directory: %w", err)
+	}
+
+	// Resolve both paths to handle symlinks
+	currentDirAbs, err := filepath.EvalSymlinks(currentDir)
+	if err != nil {
+		currentDirAbs = currentDir
+	}
+	projectRootAbs, err := filepath.EvalSymlinks(projectRoot)
+	if err != nil {
+		projectRootAbs = projectRoot
+	}
+
+	if currentDirAbs != projectRootAbs {
+		return fmt.Errorf("dual create must be run from the project root directory\nCurrent directory: %s\nProject root: %s\nHint: cd %s", currentDir, projectRoot, projectRoot)
+	}
+
 	// Get the normalized project identifier for registry operations
 	projectIdentifier, err := config.GetProjectIdentifier(projectRoot)
 	if err != nil {
