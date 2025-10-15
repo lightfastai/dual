@@ -93,7 +93,29 @@ func LoadRegistry(projectRoot string) (*Registry, error) {
 		return nil, fmt.Errorf("failed to acquire registry lock: %w", err)
 	}
 	if !locked {
-		return nil, fmt.Errorf("%w: another dual command may be running (waited %v)", ErrLockTimeout, LockTimeout)
+		// Provide detailed guidance for lock timeout
+		return nil, fmt.Errorf("%w\n\n"+
+			"DETAILS:\n"+
+			"  Lock file:    %s\n"+
+			"  Waited:       %v\n"+
+			"\n"+
+			"POSSIBLE CAUSES:\n"+
+			"  • Another dual command is currently running\n"+
+			"  • A previous dual command crashed without releasing the lock\n"+
+			"  • File permissions issue on the lock file\n"+
+			"\n"+
+			"SOLUTIONS:\n"+
+			"  1. Wait for other dual commands to complete\n"+
+			"\n"+
+			"  2. Check for running dual processes:\n"+
+			"     ps aux | grep dual\n"+
+			"\n"+
+			"  3. If no dual commands are running, remove stale lock:\n"+
+			"     rm %s\n"+
+			"\n"+
+			"  ⚠️  Only remove the lock file if you're certain no dual\n"+
+			"     commands are currently running!",
+			ErrLockTimeout, lockPath, LockTimeout, lockPath)
 	}
 
 	// Initialize registry
@@ -123,8 +145,37 @@ func LoadRegistry(projectRoot string) (*Registry, error) {
 		Projects map[string]Project `json:"projects"`
 	}
 	if err := json.Unmarshal(data, &loadedData); err != nil {
-		// If corrupt, log warning but continue with empty registry (keep the lock)
-		fmt.Fprintf(os.Stderr, "[dual] Warning: corrupt registry file in project-local .dual directory, creating new one: %v\n", err)
+		// Create backup of corrupted registry
+		backupPath := registryPath + ".corrupt." + time.Now().Format("20060102-150405")
+		_ = os.WriteFile(backupPath, data, 0o600) // Best effort backup
+
+		// Provide detailed error recovery information
+		fmt.Fprintf(os.Stderr, "\n")
+		fmt.Fprintf(os.Stderr, "═══════════════════════════════════════════════════════════════════\n")
+		fmt.Fprintf(os.Stderr, "ERROR: Registry file is corrupted\n")
+		fmt.Fprintf(os.Stderr, "═══════════════════════════════════════════════════════════════════\n")
+		fmt.Fprintf(os.Stderr, "\n")
+		fmt.Fprintf(os.Stderr, "  Registry file: %s\n", registryPath)
+		fmt.Fprintf(os.Stderr, "  Backup saved:  %s\n", backupPath)
+		fmt.Fprintf(os.Stderr, "  Parse error:   %v\n", err)
+		fmt.Fprintf(os.Stderr, "\n")
+		fmt.Fprintf(os.Stderr, "IMPACT:\n")
+		fmt.Fprintf(os.Stderr, "  • A new empty registry will be created\n")
+		fmt.Fprintf(os.Stderr, "  • Your worktrees still exist but aren't registered\n")
+		fmt.Fprintf(os.Stderr, "  • Environment overrides have been lost\n")
+		fmt.Fprintf(os.Stderr, "\n")
+		fmt.Fprintf(os.Stderr, "TO RECOVER:\n")
+		fmt.Fprintf(os.Stderr, "  1. Re-register existing worktrees:\n")
+		fmt.Fprintf(os.Stderr, "     dual create <branch-name> for each worktree\n")
+		fmt.Fprintf(os.Stderr, "\n")
+		fmt.Fprintf(os.Stderr, "  2. Or try to fix the backup file:\n")
+		fmt.Fprintf(os.Stderr, "     cat %s | jq . > %s\n", backupPath, registryPath)
+		fmt.Fprintf(os.Stderr, "\n")
+		fmt.Fprintf(os.Stderr, "  3. Run 'dual doctor' to diagnose issues\n")
+		fmt.Fprintf(os.Stderr, "\n")
+		fmt.Fprintf(os.Stderr, "═══════════════════════════════════════════════════════════════════\n")
+		fmt.Fprintf(os.Stderr, "\n")
+
 		return registry, nil
 	}
 

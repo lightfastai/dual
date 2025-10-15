@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/lightfastai/dual/internal/config"
+	dualerrors "github.com/lightfastai/dual/internal/errors"
 )
 
 // Manager handles the execution of lifecycle hooks
@@ -68,14 +70,40 @@ func (m *Manager) executeScript(scriptName string, ctx HookContext) (*EnvOverrid
 	info, err := os.Stat(hookPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("hook script not found: %s", hookPath)
+			dualErr := dualerrors.New(dualerrors.ErrConfigInvalid, "Hook script not found")
+			dualErr = dualErr.WithContext("Script name", scriptName)
+			dualErr = dualErr.WithContext("Expected location", hookPath)
+			dualErr = dualErr.WithContext("Hook event", ctx.Event.String())
+			dualErr = dualErr.WithContext("Config file", filepath.Join(m.projectRoot, config.ConfigFileName))
+			dualErr = dualErr.WithFixes(
+				fmt.Sprintf("Create the hook script: touch %s", hookPath),
+				fmt.Sprintf("Make it executable: chmod +x %s", hookPath),
+				"Add your hook logic to the script",
+				"",
+				fmt.Sprintf("Or remove '%s' from the %s hooks in %s",
+					scriptName, ctx.Event, config.ConfigFileName),
+			)
+			return nil, dualErr
 		}
 		return nil, fmt.Errorf("failed to stat hook script: %w", err)
 	}
 
 	// Check if hook is executable (Unix-like systems)
 	if info.Mode()&0o111 == 0 {
-		fmt.Fprintf(os.Stderr, "[dual] Warning: hook script %s is not executable, attempting to run anyway\n", scriptName)
+		dualErr := dualerrors.New(dualerrors.ErrConfigInvalid, "Hook script is not executable")
+		dualErr = dualErr.WithContext("Script", scriptName)
+		dualErr = dualErr.WithContext("Path", hookPath)
+		dualErr = dualErr.WithContext("Current permissions", info.Mode().String())
+		dualErr = dualErr.WithFixes(
+			fmt.Sprintf("Make the script executable: chmod +x %s", hookPath),
+			"",
+			"Hook scripts must be executable to run.",
+			"Common shebangs for hook scripts:",
+			"  #!/bin/bash",
+			"  #!/usr/bin/env bash",
+			"  #!/usr/bin/env python3",
+		)
+		return nil, dualErr
 	}
 
 	// Prepare environment variables
@@ -95,7 +123,34 @@ func (m *Manager) executeScript(scriptName string, ctx HookContext) (*EnvOverrid
 	fmt.Fprintf(os.Stderr, "[dual] Executing hook: %s\n", scriptName)
 
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("hook execution failed: %w", err)
+		// Try to get exit code if it's an ExitError
+		var exitErr *exec.ExitError
+		isExitErr := errors.As(err, &exitErr)
+
+		dualErr := dualerrors.New(dualerrors.ErrCommandFailed, "Hook script execution failed")
+		dualErr = dualErr.WithContext("Script", scriptName)
+		dualErr = dualErr.WithContext("Path", hookPath)
+		dualErr = dualErr.WithContext("Working directory", ctx.ContextPath)
+		dualErr = dualErr.WithContext("Event", ctx.Event.String())
+
+		if isExitErr && exitErr.ExitCode() != -1 {
+			dualErr = dualErr.WithContext("Exit code", fmt.Sprintf("%d", exitErr.ExitCode()))
+		}
+
+		dualErr = dualErr.WithCause(err)
+		dualErr = dualErr.WithFixes(
+			"Debug the hook script manually:",
+			fmt.Sprintf("  cd %s", ctx.ContextPath),
+			fmt.Sprintf("  export DUAL_EVENT=%s", ctx.Event),
+			fmt.Sprintf("  export DUAL_CONTEXT_NAME=%s", ctx.ContextName),
+			fmt.Sprintf("  export DUAL_CONTEXT_PATH=%s", ctx.ContextPath),
+			fmt.Sprintf("  export DUAL_PROJECT_ROOT=%s", ctx.ProjectRoot),
+			fmt.Sprintf("  %s", hookPath),
+			"",
+			"Check the script output above for error messages",
+		)
+
+		return nil, dualErr
 	}
 
 	// Parse environment variable overrides from stdout

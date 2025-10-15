@@ -1,13 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/lightfastai/dual/internal/config"
 	"github.com/lightfastai/dual/internal/env"
+	dualerrors "github.com/lightfastai/dual/internal/errors"
 	"github.com/lightfastai/dual/internal/hooks"
 	"github.com/lightfastai/dual/internal/registry"
 	"github.com/spf13/cobra"
@@ -154,10 +157,100 @@ func createGitWorktree(projectRoot, branchName, worktreePath string) error {
 	gitCmd := exec.Command("git", gitArgs...)
 	gitCmd.Dir = projectRoot
 	gitCmd.Stdout = os.Stdout
-	gitCmd.Stderr = os.Stderr
+
+	// Capture stderr to parse errors
+	var stderr bytes.Buffer
+	gitCmd.Stderr = &stderr
 
 	if err := gitCmd.Run(); err != nil {
-		return fmt.Errorf("failed to create git worktree: %w\nHint: Make sure you're in a git repository and the branch name is valid", err)
+		stderrStr := stderr.String()
+
+		// Parse common git errors and provide helpful messages
+		dualErr := dualerrors.New(dualerrors.ErrCommandFailed, "Failed to create git worktree")
+		dualErr = dualErr.WithContext("Branch", branchName)
+		dualErr = dualErr.WithContext("Path", worktreePath)
+		if createFromRef != "" {
+			dualErr = dualErr.WithContext("From ref", createFromRef)
+		}
+		dualErr = dualErr.WithCause(err)
+
+		// Parse specific git errors
+		switch {
+		case strings.Contains(stderrStr, "already exists"):
+			if strings.Contains(stderrStr, "branch") {
+				dualErr = dualErr.WithContext("Issue", "Branch already exists")
+				dualErr = dualErr.WithFixes(
+					fmt.Sprintf("The branch '%s' already exists", branchName),
+					"",
+					"Solutions:",
+					fmt.Sprintf("  1. Use the existing branch: git checkout %s", branchName),
+					fmt.Sprintf("  2. Use a different name: dual create %s-2", branchName),
+					"  3. Delete the existing branch first:",
+					fmt.Sprintf("     git branch -D %s", branchName),
+				)
+			} else {
+				dualErr = dualErr.WithContext("Issue", "Path already exists")
+				dualErr = dualErr.WithFixes(
+					"The worktree path already exists",
+					fmt.Sprintf("Remove it first: rm -rf %s", worktreePath),
+				)
+			}
+		case strings.Contains(stderrStr, "not a valid") || strings.Contains(stderrStr, "invalid"):
+			dualErr = dualErr.WithContext("Issue", "Invalid branch name")
+			dualErr = dualErr.WithFixes(
+				fmt.Sprintf("'%s' is not a valid branch name", branchName),
+				"",
+				"Branch names cannot contain:",
+				"  • Spaces (use hyphens instead)",
+				"  • Special characters: ~, ^, :, ?, *, [, \\",
+				"  • Double dots ..",
+				"  • Names ending with .lock",
+				"",
+				"Example valid names:",
+				"  • feature-auth",
+				"  • bugfix/issue-123",
+				"  • release-v1.0.0",
+			)
+		case strings.Contains(stderrStr, "unknown revision") || strings.Contains(stderrStr, "bad revision"):
+			dualErr = dualErr.WithContext("Issue", "Reference not found")
+			dualErr = dualErr.WithFixes(
+				fmt.Sprintf("The reference '%s' does not exist", createFromRef),
+				"",
+				"Check available branches: git branch -a",
+				"Check available tags: git tag -l",
+				"Check if you need to fetch: git fetch origin",
+			)
+		case strings.Contains(stderrStr, "not a git repository") || strings.Contains(stderrStr, "not in a git"):
+			dualErr = dualErr.WithContext("Issue", "Not a git repository")
+			dualErr = dualErr.WithFixes(
+				"This directory is not a git repository",
+				"",
+				"Initialize a git repository first:",
+				"  git init",
+				"",
+				"Or clone an existing repository:",
+				"  git clone <repository-url>",
+			)
+		case strings.Contains(stderrStr, "could not create directory"):
+			dualErr = dualErr.WithContext("Issue", "Permission denied")
+			dualErr = dualErr.WithFixes(
+				"Cannot create the worktree directory",
+				"Check permissions for the parent directory",
+				fmt.Sprintf("Create parent directory: mkdir -p %s", filepath.Dir(worktreePath)),
+			)
+		default:
+			// Generic error with git output
+			dualErr = dualErr.WithContext("Git error", strings.TrimSpace(stderrStr))
+			dualErr = dualErr.WithFixes(
+				"Check the git error message above",
+				"Ensure you have the latest git version: git --version",
+				"Try running the command manually:",
+				fmt.Sprintf("  cd %s", projectRoot),
+				fmt.Sprintf("  git %s", strings.Join(gitArgs, " ")),
+			)
+		}
+
+		return dualErr
 	}
 
 	return nil
