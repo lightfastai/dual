@@ -4,6 +4,8 @@
 
 **General-purpose port management for multi-context development**
 
+[![npm version](https://img.shields.io/npm/v/@lightfastai/dual)](https://www.npmjs.com/package/@lightfastai/dual)
+[![npm downloads](https://img.shields.io/npm/dm/@lightfastai/dual)](https://www.npmjs.com/package/@lightfastai/dual)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/lightfastai/dual)](https://go.dev/)
 [![Release](https://img.shields.io/github/v/release/lightfastai/dual)](https://github.com/lightfastai/dual/releases)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
