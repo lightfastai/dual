@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -70,11 +71,11 @@ func (m *Manager) executeScript(scriptName string, ctx HookContext) (*EnvOverrid
 	if err != nil {
 		if os.IsNotExist(err) {
 			dualErr := dualerrors.New(dualerrors.ErrConfigInvalid, "Hook script not found")
-			dualErr.WithContext("Script name", scriptName)
-			dualErr.WithContext("Expected location", hookPath)
-			dualErr.WithContext("Hook event", ctx.Event.String())
-			dualErr.WithContext("Config file", filepath.Join(m.projectRoot, config.ConfigFileName))
-			dualErr.WithFixes(
+			dualErr = dualErr.WithContext("Script name", scriptName)
+			dualErr = dualErr.WithContext("Expected location", hookPath)
+			dualErr = dualErr.WithContext("Hook event", ctx.Event.String())
+			dualErr = dualErr.WithContext("Config file", filepath.Join(m.projectRoot, config.ConfigFileName))
+			dualErr = dualErr.WithFixes(
 				fmt.Sprintf("Create the hook script: touch %s", hookPath),
 				fmt.Sprintf("Make it executable: chmod +x %s", hookPath),
 				"Add your hook logic to the script",
@@ -90,10 +91,10 @@ func (m *Manager) executeScript(scriptName string, ctx HookContext) (*EnvOverrid
 	// Check if hook is executable (Unix-like systems)
 	if info.Mode()&0o111 == 0 {
 		dualErr := dualerrors.New(dualerrors.ErrConfigInvalid, "Hook script is not executable")
-		dualErr.WithContext("Script", scriptName)
-		dualErr.WithContext("Path", hookPath)
-		dualErr.WithContext("Current permissions", info.Mode().String())
-		dualErr.WithFixes(
+		dualErr = dualErr.WithContext("Script", scriptName)
+		dualErr = dualErr.WithContext("Path", hookPath)
+		dualErr = dualErr.WithContext("Current permissions", info.Mode().String())
+		dualErr = dualErr.WithFixes(
 			fmt.Sprintf("Make the script executable: chmod +x %s", hookPath),
 			"",
 			"Hook scripts must be executable to run.",
@@ -123,20 +124,21 @@ func (m *Manager) executeScript(scriptName string, ctx HookContext) (*EnvOverrid
 
 	if err := cmd.Run(); err != nil {
 		// Try to get exit code if it's an ExitError
-		exitErr, isExitErr := err.(*exec.ExitError)
+		var exitErr *exec.ExitError
+		isExitErr := errors.As(err, &exitErr)
 
 		dualErr := dualerrors.New(dualerrors.ErrCommandFailed, "Hook script execution failed")
-		dualErr.WithContext("Script", scriptName)
-		dualErr.WithContext("Path", hookPath)
-		dualErr.WithContext("Working directory", ctx.ContextPath)
-		dualErr.WithContext("Event", ctx.Event.String())
+		dualErr = dualErr.WithContext("Script", scriptName)
+		dualErr = dualErr.WithContext("Path", hookPath)
+		dualErr = dualErr.WithContext("Working directory", ctx.ContextPath)
+		dualErr = dualErr.WithContext("Event", ctx.Event.String())
 
 		if isExitErr && exitErr.ExitCode() != -1 {
-			dualErr.WithContext("Exit code", fmt.Sprintf("%d", exitErr.ExitCode()))
+			dualErr = dualErr.WithContext("Exit code", fmt.Sprintf("%d", exitErr.ExitCode()))
 		}
 
-		dualErr.WithCause(err)
-		dualErr.WithFixes(
+		dualErr = dualErr.WithCause(err)
+		dualErr = dualErr.WithFixes(
 			"Debug the hook script manually:",
 			fmt.Sprintf("  cd %s", ctx.ContextPath),
 			fmt.Sprintf("  export DUAL_EVENT=%s", ctx.Event),

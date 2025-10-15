@@ -82,10 +82,10 @@ func LoadConfig() (*Config, string, error) {
 		// Check if we've reached the root
 		if parentDir == searchDir {
 			err := dualerrors.New(dualerrors.ErrConfigNotFound, fmt.Sprintf("No %s found", ConfigFileName))
-			err.WithContext("Started from", currentDir)
-			err.WithContext("Searched up to", searchDir)
-			err.WithFixes(
-				fmt.Sprintf("Initialize dual in your project root: cd <project-root> && dual init"),
+			err = err.WithContext("Started from", currentDir)
+			err = err.WithContext("Searched up to", searchDir)
+			err = err.WithFixes(
+				"Initialize dual in your project root: cd <project-root> && dual init",
 				fmt.Sprintf("Or create %s manually with this structure:", ConfigFileName),
 				"",
 				"  version: 1",
@@ -151,11 +151,11 @@ func parseConfig(path string) (*Config, error) {
 
 			dualErr := dualerrors.New(dualerrors.ErrConfigInvalid, "YAML parsing failed: hooks must be arrays, not strings")
 			if lineInfo != "" {
-				dualErr.WithContext("Location", lineInfo)
+				dualErr = dualErr.WithContext("Location", lineInfo)
 			}
-			dualErr.WithContext("File", path)
-			dualErr.WithCause(err)
-			dualErr.WithFixes(
+			dualErr = dualErr.WithContext("File", path)
+			dualErr = dualErr.WithCause(err)
+			dualErr = dualErr.WithFixes(
 				"Change hook configuration to use array format:",
 				"",
 				"  Incorrect:  postWorktreeCreate: setup.sh",
@@ -172,12 +172,12 @@ func parseConfig(path string) (*Config, error) {
 
 		// Check for indentation errors
 		if strings.Contains(errStr, "found character that cannot start any token") ||
-		   strings.Contains(errStr, "did not find expected") ||
-		   strings.Contains(errStr, "could not find expected") {
+			strings.Contains(errStr, "did not find expected") ||
+			strings.Contains(errStr, "could not find expected") {
 			dualErr := dualerrors.New(dualerrors.ErrConfigInvalid, "YAML parsing failed: indentation or syntax error")
-			dualErr.WithContext("File", path)
-			dualErr.WithCause(err)
-			dualErr.WithFixes(
+			dualErr = dualErr.WithContext("File", path)
+			dualErr = dualErr.WithCause(err)
+			dualErr = dualErr.WithFixes(
 				"Check YAML indentation and syntax:",
 				"• Use consistent spacing (2 or 4 spaces)",
 				"• Never use tabs for indentation",
@@ -190,22 +190,23 @@ func parseConfig(path string) (*Config, error) {
 		// Check for other type mismatches
 		if strings.Contains(errStr, "cannot unmarshal") {
 			dualErr := dualerrors.New(dualerrors.ErrConfigInvalid, "YAML parsing failed: type mismatch")
-			dualErr.WithContext("File", path)
-			dualErr.WithCause(err)
+			dualErr = dualErr.WithContext("File", path)
+			dualErr = dualErr.WithCause(err)
 
 			// Try to provide specific guidance based on the error
-			if strings.Contains(errStr, "!!map") && strings.Contains(errStr, "string") {
-				dualErr.WithFixes(
+			switch {
+			case strings.Contains(errStr, "!!map") && strings.Contains(errStr, "string"):
+				dualErr = dualErr.WithFixes(
 					"A value is expected to be a string but found a map/object",
 					"Check that you haven't accidentally nested configuration",
 				)
-			} else if strings.Contains(errStr, "!!seq") {
-				dualErr.WithFixes(
+			case strings.Contains(errStr, "!!seq"):
+				dualErr = dualErr.WithFixes(
 					"A value is expected to be a single item but found an array",
 					"Remove the hyphen (-) if you meant to provide a single value",
 				)
-			} else {
-				dualErr.WithFixes(
+			default:
+				dualErr = dualErr.WithFixes(
 					"Check the data types in your configuration:",
 					"• version: must be a number (1)",
 					"• services: must be a map of service configurations",
@@ -228,8 +229,8 @@ func validateConfig(config *Config, projectRoot string) error {
 	// Check version
 	if config.Version == 0 {
 		err := dualerrors.New(dualerrors.ErrConfigInvalid, "Missing required 'version' field in configuration")
-		err.WithContext("File", filepath.Join(projectRoot, ConfigFileName))
-		err.WithFixes(
+		err = err.WithContext("File", filepath.Join(projectRoot, ConfigFileName))
+		err = err.WithFixes(
 			fmt.Sprintf("Add 'version: %d' at the top of your %s file", SupportedVersion, ConfigFileName),
 			"",
 			"Example configuration:",
@@ -242,9 +243,9 @@ func validateConfig(config *Config, projectRoot string) error {
 	}
 	if config.Version != SupportedVersion {
 		err := dualerrors.New(dualerrors.ErrConfigInvalid, fmt.Sprintf("Unsupported config version %d", config.Version))
-		err.WithContext("Current version", fmt.Sprintf("%d", config.Version))
-		err.WithContext("Required version", fmt.Sprintf("%d", SupportedVersion))
-		err.WithFixes(
+		err = err.WithContext("Current version", fmt.Sprintf("%d", config.Version))
+		err = err.WithContext("Required version", fmt.Sprintf("%d", SupportedVersion))
+		err = err.WithFixes(
 			fmt.Sprintf("Update the version field to %d", SupportedVersion),
 			"This version of dual only supports config version 1",
 			"Check if you need to update dual: dual --version",
@@ -286,11 +287,11 @@ func validateService(name string, service Service, projectRoot string) error {
 
 	if service.Path == "" {
 		err := dualerrors.New(dualerrors.ErrConfigInvalid, fmt.Sprintf("Service '%s' missing required 'path' field", name))
-		err.WithContext("Service", name)
-		err.WithFixes(
+		err = err.WithContext("Service", name)
+		err = err.WithFixes(
 			"Add a path field to the service configuration:",
 			"",
-			fmt.Sprintf("  services:"),
+			"  services:",
 			fmt.Sprintf("    %s:", name),
 			fmt.Sprintf("      path: ./path/to/%s", name),
 		)
@@ -300,10 +301,10 @@ func validateService(name string, service Service, projectRoot string) error {
 	// Check if path is absolute (it shouldn't be - should be relative to project root)
 	if filepath.IsAbs(service.Path) {
 		err := dualerrors.New(dualerrors.ErrConfigInvalid, "Service path must be relative to project root")
-		err.WithContext("Service", name)
-		err.WithContext("Absolute path", service.Path)
-		err.WithContext("Project root", projectRoot)
-		err.WithFixes(
+		err = err.WithContext("Service", name)
+		err = err.WithContext("Absolute path", service.Path)
+		err = err.WithContext("Project root", projectRoot)
+		err = err.WithFixes(
 			"Convert to a relative path from the project root:",
 			fmt.Sprintf("  Instead of: %s", service.Path),
 			fmt.Sprintf("  Use: ./%s", filepath.Base(service.Path)),
@@ -319,11 +320,11 @@ func validateService(name string, service Service, projectRoot string) error {
 	if err != nil {
 		if os.IsNotExist(err) {
 			dualErr := dualerrors.New(dualerrors.ErrConfigInvalid, "Service path does not exist")
-			dualErr.WithContext("Service", name)
-			dualErr.WithContext("Configured path", service.Path)
-			dualErr.WithContext("Resolved to", fullPath)
-			dualErr.WithContext("Config location", filepath.Join(projectRoot, ConfigFileName))
-			dualErr.WithFixes(
+			dualErr = dualErr.WithContext("Service", name)
+			dualErr = dualErr.WithContext("Configured path", service.Path)
+			dualErr = dualErr.WithContext("Resolved to", fullPath)
+			dualErr = dualErr.WithContext("Config location", filepath.Join(projectRoot, ConfigFileName))
+			dualErr = dualErr.WithFixes(
 				fmt.Sprintf("Create the directory: mkdir -p %s", fullPath),
 				fmt.Sprintf("Or update the path in %s", ConfigFileName),
 				"",
@@ -337,14 +338,14 @@ func validateService(name string, service Service, projectRoot string) error {
 	// Path should be a directory
 	if !info.IsDir() {
 		dualErr := dualerrors.New(dualerrors.ErrConfigInvalid, "Service path must be a directory, not a file")
-		dualErr.WithContext("Service", name)
-		dualErr.WithContext("Path", service.Path)
-		dualErr.WithContext("Resolved to", fullPath)
-		dualErr.WithContext("File type", "regular file")
-		dualErr.WithFixes(
+		dualErr = dualErr.WithContext("Service", name)
+		dualErr = dualErr.WithContext("Path", service.Path)
+		dualErr = dualErr.WithContext("Resolved to", fullPath)
+		dualErr = dualErr.WithContext("File type", "regular file")
+		dualErr = dualErr.WithFixes(
 			"Service paths must point to directories containing your service code",
 			fmt.Sprintf("Check if you meant the parent directory: %s", filepath.Dir(service.Path)),
-			fmt.Sprintf("Or create a directory at: mkdir -p %s", fullPath + "_dir"),
+			fmt.Sprintf("Or create a directory at: mkdir -p %s", fullPath+"_dir"),
 		)
 		return dualErr
 	}

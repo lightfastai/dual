@@ -106,7 +106,7 @@ func TestValidateConfig(t *testing.T) {
 				},
 			},
 			wantErr: true,
-			errMsg:  "version field is required",
+			errMsg:  "Missing required 'version' field",
 		},
 		{
 			name: "unsupported version",
@@ -117,7 +117,7 @@ func TestValidateConfig(t *testing.T) {
 				},
 			},
 			wantErr: true,
-			errMsg:  "unsupported config version",
+			errMsg:  "Unsupported config version",
 		},
 		{
 			name: "no services (allowed for init)",
@@ -219,7 +219,7 @@ func TestValidateService(t *testing.T) {
 				Path: "",
 			},
 			wantErr: true,
-			errMsg:  "path is required",
+			errMsg:  "missing required 'path' field",
 		},
 		{
 			name: "absolute path",
@@ -378,8 +378,8 @@ services:
 		if err == nil {
 			t.Error("LoadConfig() expected error, got nil")
 		}
-		if !contains(err.Error(), "no dual.config.yml found") {
-			t.Errorf("LoadConfig() error = %v, want error containing 'no dual.config.yml found'", err)
+		if !contains(err.Error(), "No dual.config.yml found") {
+			t.Errorf("LoadConfig() error = %v, want error containing 'No dual.config.yml found'", err)
 		}
 	})
 }
@@ -415,7 +415,7 @@ services:
     path: apps/web
 `,
 			wantErr: true,
-			errMsg:  "unsupported config version",
+			errMsg:  "Unsupported config version",
 		},
 		{
 			name: "missing services (allowed for init)",

@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -233,78 +232,15 @@ func (r *Registry) GetContext(projectPath, contextName string) (*Context, error)
 
 	project, exists := r.Projects[projectPath]
 	if !exists {
-		return nil, fmt.Errorf("%v\n\n"+
-			"Project path: %s\n"+
-			"\n"+
-			"This project has no registered contexts.\n"+
-			"Run 'dual create <branch>' to create your first worktree.",
-			ErrProjectNotFound, projectPath)
+		return nil, ErrProjectNotFound
 	}
 
 	context, exists := project.Contexts[contextName]
 	if !exists {
-		// Build list of available contexts
-		availableContexts := make([]string, 0, len(project.Contexts))
-		for name := range project.Contexts {
-			availableContexts = append(availableContexts, name)
-		}
-		sort.Strings(availableContexts)
-
-		if len(availableContexts) == 0 {
-			return nil, fmt.Errorf("%v: %q\n\n"+
-				"No contexts are registered for this project.\n"+
-				"Run 'dual create <branch>' to create a worktree.",
-				ErrContextNotFound, contextName)
-		}
-
-		// Build error message with available contexts
-		errMsg := fmt.Sprintf("%v: %q\n\n", ErrContextNotFound, contextName)
-		errMsg += "AVAILABLE CONTEXTS:\n"
-		for _, name := range availableContexts {
-			if ctx, ok := project.Contexts[name]; ok {
-				if ctx.Path != "" {
-					errMsg += fmt.Sprintf("  • %-20s → %s\n", name, ctx.Path)
-				} else {
-					errMsg += fmt.Sprintf("  • %s\n", name)
-				}
-			}
-		}
-		errMsg += "\n"
-		errMsg += "SUGGESTIONS:\n"
-		errMsg += "  • Check the context name spelling\n"
-		errMsg += "  • Run 'dual list' to see all contexts\n"
-		errMsg += fmt.Sprintf("  • Create the context: dual create %s\n", contextName)
-
-		// Try to find a close match
-		if closestMatch := findClosestContext(contextName, availableContexts); closestMatch != "" {
-			errMsg += fmt.Sprintf("\nDid you mean '%s'?", closestMatch)
-		}
-
-		return nil, errors.New(errMsg)
+		return nil, ErrContextNotFound
 	}
 
 	return &context, nil
-}
-
-// findClosestContext tries to find a context name that's similar to the input
-func findClosestContext(input string, available []string) string {
-	// Simple case-insensitive match first
-	inputLower := strings.ToLower(input)
-	for _, name := range available {
-		if strings.ToLower(name) == inputLower {
-			return name
-		}
-	}
-
-	// Check for prefix matches
-	for _, name := range available {
-		if strings.HasPrefix(strings.ToLower(name), inputLower) ||
-		   strings.HasPrefix(inputLower, strings.ToLower(name)) {
-			return name
-		}
-	}
-
-	return ""
 }
 
 // SetContext creates or updates a context for a given project

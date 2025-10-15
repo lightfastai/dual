@@ -20,7 +20,7 @@ services: {}
 	// Try to use dual - should fail with version error
 	stdout, stderr, exitCode := h.RunDual("service", "add", "test", "--path", "apps/test")
 	h.AssertExitCode(exitCode, 1, stdout+stderr)
-	h.AssertOutputContains(stderr, "unsupported config version 99")
+	h.AssertOutputContains(stderr, "Unsupported config version 99")
 }
 
 // TestConfigValidationMissingVersion tests config validation with missing version
@@ -38,7 +38,7 @@ func TestConfigValidationMissingVersion(t *testing.T) {
 	// Try to use dual - should fail
 	stdout, stderr, exitCode := h.RunDual("service", "add", "test", "--path", "apps/test")
 	h.AssertExitCode(exitCode, 1, stdout+stderr)
-	h.AssertOutputContains(stderr, "version field is required")
+	h.AssertOutputContains(stderr, "Missing required 'version' field")
 }
 
 // TestConfigValidationAbsolutePath tests that absolute paths are rejected
