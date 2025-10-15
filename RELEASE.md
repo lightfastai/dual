@@ -74,11 +74,49 @@ Merge "Version Packages" PR
 ↓
 Auto-create git tag (v0.2.0)
 ↓
+⚠️ MANUAL STEP REQUIRED (see Known Limitations below)
+↓
 Trigger release workflow
 ↓
 Publish to GitHub + Homebrew + npm
 ↓
 Verify all channels
+```
+
+### Known Limitations
+
+**⚠️ Manual Tag Re-Push Required**
+
+Due to GitHub Actions platform constraints, the release workflow does **not** automatically trigger when the `tag-from-version.yml` workflow creates a tag. This is a fundamental limitation: workflows triggered by GitHub Actions (even with PAT) cannot trigger other workflows.
+
+**After merging a "Version Packages" PR, you must manually re-push the tag:**
+
+```bash
+# Wait for tag-from-version workflow to create the tag
+# (Check Actions tab or run: git fetch --tags)
+
+# Re-push the tag from your local machine
+git fetch --tags
+git push origin v0.2.1  # Replace with actual version
+
+# This will trigger the release workflow
+```
+
+**Why this happens:**
+- GitHub Actions workflows cannot trigger other workflows, even with Personal Access Tokens
+- This is documented GitHub behavior to prevent infinite workflow loops
+- The tag-from-version workflow successfully creates the tag, but the release workflow won't run until the tag is pushed by a non-Actions source
+
+**Alternative solutions** (not currently implemented):
+- Use repository dispatch events (requires workflow changes)
+- Use external webhook service
+- Accept manual tag re-push as documented procedure (current approach)
+
+**Verification:**
+After re-pushing the tag, verify the release workflow started:
+```bash
+# Check if release workflow is running
+gh run list --workflow=release.yml --limit 5
 ```
 
 ### Alternative: Manual Release Process (Emergency/Hotfix)
@@ -401,6 +439,23 @@ If using a PAT (Personal Access Token):
 1. Check Go compatibility with the target platform
 2. Review CGO requirements (currently disabled)
 3. Check GitHub Actions logs for detailed error messages
+
+### Release Workflow Doesn't Trigger After Version Packages PR
+
+**Symptom:**
+- "Version Packages" PR was merged
+- tag-from-version workflow ran successfully and created the tag
+- Release workflow never started
+
+**Solution:**
+This is expected behavior due to GitHub Actions limitations. Manually re-push the tag:
+
+```bash
+git fetch --tags
+git push origin vX.Y.Z  # Replace with the actual version tag
+```
+
+See "Known Limitations" section above for detailed explanation.
 
 ### Verification Job Fails
 

@@ -132,6 +132,8 @@ gh pr create --fill
 
 You don't need to do anything else!
 
+> **Note for maintainers:** See [RELEASE.md](RELEASE.md) for the complete release workflow, including required manual steps.
+
 ## Changesets FAQ
 
 ### When should I skip creating a changeset?
