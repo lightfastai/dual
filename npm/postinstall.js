@@ -167,6 +167,15 @@ async function install() {
 
   console.log(`[dual] Installing for ${platform}-${arch}`);
 
+  // Skip download in CI environments where release may not exist yet
+  // This prevents failures during version bumping workflows
+  if (process.env.CI && !process.env.DUAL_FORCE_INSTALL) {
+    console.log('[dual] Detected CI environment - skipping binary download');
+    console.log('[dual] Binary will be available after release completes');
+    console.log('[dual] Set DUAL_FORCE_INSTALL=true to override this behavior');
+    return;
+  }
+
   // Check if binary already exists (useful for local development)
   if (fs.existsSync(binaryPath)) {
     console.log(`[dual] Binary already exists at ${binaryPath}`);
