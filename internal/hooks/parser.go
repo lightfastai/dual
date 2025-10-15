@@ -25,14 +25,16 @@ func NewEnvOverrides() *EnvOverrides {
 
 // ParseEnvOverrides parses hook stdout into structured environment variable overrides
 // Format:
-//   GLOBAL:KEY=VALUE -> global override that applies to all services
-//   service:KEY=VALUE -> service-specific override
+//
+//	GLOBAL:KEY=VALUE -> global override that applies to all services
+//	service:KEY=VALUE -> service-specific override
 //
 // Examples:
-//   GLOBAL:DATABASE_URL=postgres://localhost/db
-//   api:PORT=4201
-//   web:PORT=4202
-//   api:API_KEY=secret123
+//
+//	GLOBAL:DATABASE_URL=postgres://localhost/db
+//	api:PORT=4201
+//	web:PORT=4202
+//	api:API_KEY=secret123
 //
 // Lines that don't match the format are silently ignored (allows hooks to print other output)
 func ParseEnvOverrides(output string) (*EnvOverrides, error) {

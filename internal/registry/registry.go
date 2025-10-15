@@ -323,7 +323,6 @@ func (r *Registry) ListContexts(projectPath string) (map[string]Context, error) 
 	return contexts, nil
 }
 
-
 // GetAllProjects returns a list of all project paths in the registry
 func (r *Registry) GetAllProjects() []string {
 	r.mu.RLock()
