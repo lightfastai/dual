@@ -56,8 +56,8 @@ func runInit(cmd *cobra.Command, args []string) error {
 	fmt.Printf("[dual] Initialized configuration at %s\n", configPath)
 	fmt.Println("\nNext steps:")
 	fmt.Println("  1. Add services with: dual service add <name> --path <path>")
-	fmt.Println("  2. Create a context with: dual context create")
-	fmt.Println("  3. Run your commands with: dual <command>")
+	fmt.Println("  2. Create a worktree with: dual create <branch>")
+	fmt.Println("  3. Manage environment with: dual env")
 
 	return nil
 }

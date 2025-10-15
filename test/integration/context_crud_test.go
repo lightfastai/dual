@@ -21,30 +21,35 @@ services:
   web:
     path: services/web
     envFile: services/web/.env
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
 `)
 	h.CreateDirectory("services/api")
 	h.CreateDirectory("services/web")
 
-	// Create a few contexts
-	h.CreateGitBranch("main")
-	stdout, stderr, exitCode := h.RunDual("context", "create", "main")
+	// Create an initial commit (required for git worktree add)
+	h.WriteFile("README.md", "# Test Project")
+	h.RunGitCommand("add", "README.md")
+	h.RunGitCommand("commit", "-m", "Initial commit")
+
+	// Create a few contexts (dual create will create the branches)
+	// Note: avoid "main" since git init creates a main branch by default
+	stdout, stderr, exitCode := h.RunDual("create", "context-a")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 
-	h.CreateGitBranch("feature-a")
-	stdout, stderr, exitCode = h.RunDual("context", "create", "feature-a")
+	stdout, stderr, exitCode = h.RunDual("create", "context-b")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 
-	h.CreateGitBranch("feature-b")
-	stdout, stderr, exitCode = h.RunDual("context", "create", "feature-b")
+	stdout, stderr, exitCode = h.RunDual("create", "context-c")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 
-	// Test basic list (should be on feature-b branch)
-	stdout, stderr, exitCode = h.RunDual("context", "list")
+	// Test basic list
+	stdout, stderr, exitCode = h.RunDual("list")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "main")
-	h.AssertOutputContains(stdout, "feature-a")
-	h.AssertOutputContains(stdout, "feature-b")
-	h.AssertOutputContains(stdout, "(current)") // feature-b is current
+	h.AssertOutputContains(stdout, "context-a")
+	h.AssertOutputContains(stdout, "context-b")
+	h.AssertOutputContains(stdout, "context-c")
 	h.AssertOutputContains(stdout, "Total: 3 contexts")
 }
 
@@ -60,16 +65,23 @@ services:
   api:
     path: services/api
     envFile: services/api/.env
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
 `)
 	h.CreateDirectory("services/api")
 
-	// Create a context
-	h.CreateGitBranch("main")
-	stdout, stderr, exitCode := h.RunDual("context", "create", "main")
+	// Create an initial commit (required for git worktree add)
+	h.WriteFile("README.md", "# Test Project")
+	h.RunGitCommand("add", "README.md")
+	h.RunGitCommand("commit", "-m", "Initial commit")
+
+	// Create a context (dual create will create the branch)
+	stdout, stderr, exitCode := h.RunDual("create", "trunk")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 
 	// Test JSON output
-	stdout, stderr, exitCode = h.RunDual("context", "list", "--json")
+	stdout, stderr, exitCode = h.RunDual("list", "--json")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 
 	// Parse JSON
@@ -99,44 +111,14 @@ services:
 	if ctx["name"] == nil {
 		t.Error("context missing name field")
 	}
-	if ctx["basePort"] == nil {
-		t.Error("context missing basePort field")
-	}
 	if ctx["created"] == nil {
 		t.Error("context missing created field")
 	}
 }
 
 // TestContextListWithPorts tests the context list command with --ports flag
-func TestContextListWithPorts(t *testing.T) {
-	h := NewTestHelper(t)
-	defer h.RestoreHome()
-
-	// Initialize git repo and config
-	h.InitGitRepo()
-	h.WriteFile("dual.config.yml", `version: 1
-services:
-  api:
-    path: services/api
-    envFile: services/api/.env
-  web:
-    path: services/web
-    envFile: services/web/.env
-`)
-	h.CreateDirectory("services/api")
-	h.CreateDirectory("services/web")
-
-	// Create a context
-	h.CreateGitBranch("main")
-	stdout, stderr, exitCode := h.RunDual("context", "create", "main", "--base-port", "4100")
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-
-	// Test list with ports
-	stdout, stderr, exitCode = h.RunDual("context", "list", "--ports")
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "api:4101")
-	h.AssertOutputContains(stdout, "web:4102")
-}
+// REMOVED: This test was specific to port listing functionality which has been removed.
+// The worktree lifecycle manager no longer manages ports.
 
 // TestContextListNoContexts tests listing when no contexts exist
 func TestContextListNoContexts(t *testing.T) {
@@ -150,15 +132,17 @@ services:
   api:
     path: services/api
     envFile: services/api/.env
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
 `)
 	h.CreateDirectory("services/api")
-	h.CreateGitBranch("main")
 
 	// List contexts (none created yet)
-	stdout, stderr, exitCode := h.RunDual("context", "list")
+	stdout, stderr, exitCode := h.RunDual("list")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 	h.AssertOutputContains(stdout, "No contexts found")
-	h.AssertOutputContains(stdout, "dual context create")
+	h.AssertOutputContains(stdout, "dual create")
 }
 
 // TestContextDelete tests the context delete command
@@ -173,31 +157,35 @@ services:
   api:
     path: services/api
     envFile: services/api/.env
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
 `)
 	h.CreateDirectory("services/api")
 
-	// Create two contexts
-	h.CreateGitBranch("main")
-	stdout, stderr, exitCode := h.RunDual("context", "create", "main")
+	// Create an initial commit (required for git worktree add)
+	h.WriteFile("README.md", "# Test Project")
+	h.RunGitCommand("add", "README.md")
+	h.RunGitCommand("commit", "-m", "Initial commit")
+
+	// Create two contexts (dual create will create the branches)
+	stdout, stderr, exitCode := h.RunDual("create", "trunk")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 
-	h.CreateGitBranch("feature-a")
-	stdout, stderr, exitCode = h.RunDual("context", "create", "feature-a")
+	stdout, stderr, exitCode = h.RunDual("create", "feature-a")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
-
-	// Switch back to main
-	h.CreateGitBranch("main")
 
 	// Delete feature-a context with --force
-	stdout, stderr, exitCode = h.RunDual("context", "delete", "feature-a", "--force")
+	stdout, stderr, exitCode = h.RunDual("delete", "feature-a", "--force")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "Deleted context")
-	h.AssertOutputContains(stdout, "feature-a")
+	output := stdout + stderr
+	h.AssertOutputContains(output, "deleted successfully")
+	h.AssertOutputContains(output, "feature-a")
 
 	// Verify it's deleted by listing
-	stdout, stderr, exitCode = h.RunDual("context", "list")
+	stdout, stderr, exitCode = h.RunDual("list")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "main")
+	h.AssertOutputContains(stdout, "trunk")
 	h.AssertOutputNotContains(stdout, "feature-a")
 	h.AssertOutputContains(stdout, "Total: 1 context")
 }
@@ -209,21 +197,29 @@ func TestContextDeleteCurrent(t *testing.T) {
 
 	// Initialize git repo and config
 	h.InitGitRepo()
+	h.CreateGitBranch("main")
 	h.WriteFile("dual.config.yml", `version: 1
 services:
   api:
     path: services/api
     envFile: services/api/.env
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
 `)
 	h.CreateDirectory("services/api")
 
-	// Create a context
-	h.CreateGitBranch("main")
-	stdout, stderr, exitCode := h.RunDual("context", "create", "main")
+	// Create an initial commit (required for git worktree add)
+	h.WriteFile("README.md", "# Test Project")
+	h.RunGitCommand("add", "README.md")
+	h.RunGitCommand("commit", "-m", "Initial commit")
+
+	// Create a context for main branch (dual create will create the worktree)
+	stdout, stderr, exitCode := h.RunDual("create", "main")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 
-	// Try to delete current context (should fail)
-	stdout, stderr, exitCode = h.RunDual("context", "delete", "main", "--force")
+	// Try to delete main context from the main repo (should fail because we're on main branch)
+	stdout, stderr, exitCode = h.RunDual("delete", "main", "--force")
 	h.AssertExitCode(exitCode, 1, stdout+stderr)
 	h.AssertOutputContains(stderr, "cannot delete current context")
 }
@@ -240,12 +236,14 @@ services:
   api:
     path: services/api
     envFile: services/api/.env
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
 `)
 	h.CreateDirectory("services/api")
-	h.CreateGitBranch("main")
 
 	// Try to delete non-existent context
-	stdout, stderr, exitCode := h.RunDual("context", "delete", "nonexistent", "--force")
+	stdout, stderr, exitCode := h.RunDual("delete", "nonexistent", "--force")
 	h.AssertExitCode(exitCode, 1, stdout+stderr)
 	h.AssertOutputContains(stderr, "not found")
 }
@@ -262,67 +260,31 @@ services:
   api:
     path: services/api
     envFile: services/api/.env
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
 `)
 	h.CreateDirectory("services/api")
-	h.CreateGitBranch("main")
-	stdout, stderr, exitCode := h.RunDual("context", "create", "main")
+
+	// Create an initial commit (required for git worktree add)
+	h.WriteFile("README.md", "# Test Project")
+	h.RunGitCommand("add", "README.md")
+	h.RunGitCommand("commit", "-m", "Initial commit")
+
+	stdout, stderr, exitCode := h.RunDual("create", "trunk")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 
 	// List all projects (should show current project)
-	stdout, stderr, exitCode = h.RunDual("context", "list", "--all")
+	stdout, stderr, exitCode = h.RunDual("list", "--all")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 	h.AssertOutputContains(stdout, "Project:")
-	h.AssertOutputContains(stdout, "main")
+	h.AssertOutputContains(stdout, "trunk")
 	h.AssertOutputContains(stdout, "Total: 1 contexts across 1 projects")
 }
 
 // TestContextListWithJSONAndPorts tests combining --json and --ports flags
-func TestContextListWithJSONAndPorts(t *testing.T) {
-	h := NewTestHelper(t)
-	defer h.RestoreHome()
-
-	// Initialize git repo and config
-	h.InitGitRepo()
-	h.WriteFile("dual.config.yml", `version: 1
-services:
-  api:
-    path: services/api
-    envFile: services/api/.env
-  web:
-    path: services/web
-    envFile: services/web/.env
-`)
-	h.CreateDirectory("services/api")
-	h.CreateDirectory("services/web")
-
-	// Create a context
-	h.CreateGitBranch("main")
-	stdout, stderr, exitCode := h.RunDual("context", "create", "main", "--base-port", "4100")
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-
-	// Test JSON output with ports
-	stdout, stderr, exitCode = h.RunDual("context", "list", "--json", "--ports")
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-
-	// Parse JSON
-	var result map[string]interface{}
-	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
-		t.Fatalf("failed to parse JSON output: %v\nOutput: %s", err, stdout)
-	}
-
-	contexts := result["contexts"].([]interface{})
-	ctx := contexts[0].(map[string]interface{})
-
-	// Verify ports field exists
-	if ctx["ports"] == nil {
-		t.Error("context missing ports field with --ports flag")
-	}
-
-	ports := ctx["ports"].(map[string]interface{})
-	if ports["api"] == nil || ports["web"] == nil {
-		t.Error("ports field missing service entries")
-	}
-}
+// REMOVED: This test was specific to port listing functionality which has been removed.
+// The worktree lifecycle manager no longer manages ports.
 
 // TestContextDeleteShowsInfo tests that delete shows context info before deletion
 func TestContextDeleteShowsInfo(t *testing.T) {
@@ -336,26 +298,30 @@ services:
   api:
     path: services/api
     envFile: services/api/.env
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
 `)
 	h.CreateDirectory("services/api")
 
-	// Create two contexts
-	h.CreateGitBranch("main")
-	stdout, stderr, exitCode := h.RunDual("context", "create", "main", "--base-port", "4100")
+	// Create an initial commit (required for git worktree add)
+	h.WriteFile("README.md", "# Test Project")
+	h.RunGitCommand("add", "README.md")
+	h.RunGitCommand("commit", "-m", "Initial commit")
+
+	// Create two contexts (dual create will create the branches)
+	stdout, stderr, exitCode := h.RunDual("create", "trunk")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 
-	h.CreateGitBranch("feature-a")
-	stdout, stderr, exitCode = h.RunDual("context", "create", "feature-a", "--base-port", "4200")
+	stdout, stderr, exitCode = h.RunDual("create", "feature-a")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
-
-	// Switch back to main
-	h.CreateGitBranch("main")
 
 	// Delete feature-a with --force (should show info)
-	stdout, stderr, exitCode = h.RunDual("context", "delete", "feature-a", "--force")
+	stdout, stderr, exitCode = h.RunDual("delete", "feature-a", "--force")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "About to delete context: feature-a")
-	h.AssertOutputContains(stdout, "Base Port: 4200")
+	output := stdout + stderr
+	h.AssertOutputContains(output, "About to delete worktree")
+	h.AssertOutputContains(output, "feature-a")
 }
 
 // TestContextListSorting tests that contexts are listed in alphabetical order
@@ -370,24 +336,29 @@ services:
   api:
     path: services/api
     envFile: services/api/.env
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
 `)
 	h.CreateDirectory("services/api")
 
-	// Create contexts in non-alphabetical order
-	h.CreateGitBranch("zebra")
-	stdout, stderr, exitCode := h.RunDual("context", "create", "zebra")
+	// Create an initial commit (required for git worktree add)
+	h.WriteFile("README.md", "# Test Project")
+	h.RunGitCommand("add", "README.md")
+	h.RunGitCommand("commit", "-m", "Initial commit")
+
+	// Create contexts in non-alphabetical order (dual create will create the branches)
+	stdout, stderr, exitCode := h.RunDual("create", "zebra")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 
-	h.CreateGitBranch("alpha")
-	stdout, stderr, exitCode = h.RunDual("context", "create", "alpha")
+	stdout, stderr, exitCode = h.RunDual("create", "alpha")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 
-	h.CreateGitBranch("beta")
-	stdout, stderr, exitCode = h.RunDual("context", "create", "beta")
+	stdout, stderr, exitCode = h.RunDual("create", "beta")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 
 	// List contexts
-	stdout, stderr, exitCode = h.RunDual("context", "list")
+	stdout, stderr, exitCode = h.RunDual("list")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 
 	// Verify alphabetical order (alpha should come before beta, and beta before zebra)

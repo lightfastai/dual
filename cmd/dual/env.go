@@ -23,7 +23,19 @@ var (
 	envShowJSON         bool
 	envExportFormat     string
 	envServiceFlag      string // --service flag for service-specific overrides
+	envVerbose          bool
+	envDebug            bool
 )
+
+// getServiceNames returns a sorted list of service names from config
+func getServiceNames(cfg *config.Config) []string {
+	names := make([]string, 0, len(cfg.Services))
+	for name := range cfg.Services {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
 
 var envCmd = &cobra.Command{
 	Use:   "env",
@@ -31,8 +43,8 @@ var envCmd = &cobra.Command{
 	Long: `Manage context-specific environment variable overrides.
 
 Environment variables are layered in the following priority (highest to lowest):
-  1. Runtime values (PORT)
-  2. Context-specific overrides
+  1. Context-specific overrides
+  2. Service-specific environment
   3. Base environment file
 
 Use 'dual env set' to override variables for the current context.`,
@@ -62,7 +74,7 @@ var envSetCmd = &cobra.Command{
 	Long: `Set an environment variable override for the current context.
 
 This override will be applied whenever commands are run in this context.
-The override takes precedence over the base environment file but not over PORT.
+The override takes precedence over service and base environment files.
 
 Use --service to set a service-specific override that only applies to that service.
 
@@ -96,7 +108,7 @@ var envExportCmd = &cobra.Command{
 	Short: "Export merged environment to stdout",
 	Long: `Export the complete merged environment to stdout.
 
-The output includes all layers merged together (base, overrides, runtime).
+The output includes all layers merged together (base, service, overrides).
 
 Examples:
   dual env export              # dotenv format
@@ -139,6 +151,23 @@ Examples:
 	RunE: runEnvDiff,
 }
 
+var envRemapCmd = &cobra.Command{
+	Use:   "remap",
+	Short: "Regenerate service-specific .env files from registry",
+	Long: `Reads environment overrides from registry and generates .dual/.local/service/<service>/.env files.
+
+This command regenerates all service-specific environment files based on the current
+registry state. This is useful if you've manually edited the registry or if the
+files are out of sync.
+
+The files are automatically generated when you use 'dual env set' or 'dual env unset',
+so you typically don't need to run this command manually.
+
+Examples:
+  dual env remap    # Regenerate all service env files`,
+	RunE: runEnvRemap,
+}
+
 func init() {
 	rootCmd.AddCommand(envCmd)
 
@@ -149,6 +178,7 @@ func init() {
 	envCmd.AddCommand(envExportCmd)
 	envCmd.AddCommand(envCheckCmd)
 	envCmd.AddCommand(envDiffCmd)
+	envCmd.AddCommand(envRemapCmd)
 
 	// Flags for show command
 	envShowCmd.Flags().BoolVar(&envShowValues, "values", false, "show all variable values")
@@ -170,7 +200,7 @@ func init() {
 
 func runEnvShow(cmd *cobra.Command, args []string) error {
 	// Initialize logger
-	logger.Init(verboseFlag, debugFlag)
+	logger.Init(envVerbose, envDebug)
 
 	// Load config
 	cfg, projectRoot, err := config.LoadConfig()
@@ -191,7 +221,7 @@ func runEnvShow(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load registry
-	reg, err := registry.LoadRegistry()
+	reg, err := registry.LoadRegistry(projectRoot)
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
 	}
@@ -200,20 +230,17 @@ func runEnvShow(cmd *cobra.Command, args []string) error {
 	// Get context from registry
 	ctx, err := reg.GetContext(projectIdentifier, contextName)
 	if err != nil {
-		return fmt.Errorf("context %q not found in registry\nHint: Run 'dual context create' to create this context", contextName)
+		return fmt.Errorf("context %q not found in registry\nHint: Run 'dual create <branch>' to create a worktree with a context", contextName)
 	}
 
 	// Get environment overrides for the specified service (or global if no service specified)
 	overrides := ctx.GetEnvOverrides(envServiceFlag)
 
-	// Load layered environment (without PORT since we're just showing info)
-	layeredEnv, err := env.LoadLayeredEnv(projectRoot, cfg, contextName, overrides, 0)
+	// Load layered environment
+	layeredEnv, err := env.LoadLayeredEnv(projectRoot, cfg, contextName, overrides)
 	if err != nil {
 		return fmt.Errorf("failed to load environment: %w", err)
 	}
-
-	// Remove PORT from runtime since we added it with 0
-	delete(layeredEnv.Runtime, "PORT")
 
 	// Get stats
 	stats := layeredEnv.Stats()
@@ -365,7 +392,7 @@ func runEnvSet(cmd *cobra.Command, args []string) error {
 	value := args[1]
 
 	// Initialize logger
-	logger.Init(verboseFlag, debugFlag)
+	logger.Init(envVerbose, envDebug)
 
 	// Load config
 	cfg, projectRoot, err := config.LoadConfig()
@@ -386,7 +413,7 @@ func runEnvSet(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load registry
-	reg, err := registry.LoadRegistry()
+	reg, err := registry.LoadRegistry(projectRoot)
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
 	}
@@ -395,7 +422,7 @@ func runEnvSet(cmd *cobra.Command, args []string) error {
 	// Check if context exists
 	_, err = reg.GetContext(projectIdentifier, contextName)
 	if err != nil {
-		return fmt.Errorf("context %q not found in registry\nHint: Run 'dual context create' to create this context", contextName)
+		return fmt.Errorf("context %q not found in registry\nHint: Run 'dual create <branch>' to create a worktree with a context", contextName)
 	}
 
 	// If service is specified, validate it exists in config
@@ -424,6 +451,12 @@ func runEnvSet(cmd *cobra.Command, args []string) error {
 	// Save registry
 	if err := reg.SaveRegistry(); err != nil {
 		return fmt.Errorf("failed to save registry: %w", err)
+	}
+
+	// Generate service env files
+	if err := env.GenerateServiceEnvFiles(cfg, reg, projectRoot, projectIdentifier, contextName); err != nil {
+		fmt.Fprintf(os.Stderr, "[dual] Warning: failed to regenerate service env files: %v\n", err)
+		// Don't fail the command - the override is saved, env files are optional
 	}
 
 	// Show success message
@@ -458,7 +491,7 @@ func runEnvUnset(cmd *cobra.Command, args []string) error {
 	key := args[0]
 
 	// Initialize logger
-	logger.Init(verboseFlag, debugFlag)
+	logger.Init(envVerbose, envDebug)
 
 	// Load config
 	cfg, projectRoot, err := config.LoadConfig()
@@ -479,7 +512,7 @@ func runEnvUnset(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load registry
-	reg, err := registry.LoadRegistry()
+	reg, err := registry.LoadRegistry(projectRoot)
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
 	}
@@ -488,7 +521,7 @@ func runEnvUnset(cmd *cobra.Command, args []string) error {
 	// Check if context exists
 	ctx, err := reg.GetContext(projectIdentifier, contextName)
 	if err != nil {
-		return fmt.Errorf("context %q not found in registry\nHint: Run 'dual context create' to create this context", contextName)
+		return fmt.Errorf("context %q not found in registry\nHint: Run 'dual create <branch>' to create a worktree with a context", contextName)
 	}
 
 	// If service is specified, validate it exists in config
@@ -516,6 +549,12 @@ func runEnvUnset(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to save registry: %w", err)
 	}
 
+	// Generate service env files
+	if err := env.GenerateServiceEnvFiles(cfg, reg, projectRoot, projectIdentifier, contextName); err != nil {
+		fmt.Fprintf(os.Stderr, "[dual] Warning: failed to regenerate service env files: %v\n", err)
+		// Don't fail the command - the override is removed, env files are optional
+	}
+
 	// Show success message
 	if envServiceFlag != "" {
 		fmt.Printf("Removed override for %s in service '%s' for context '%s'\n", key, envServiceFlag, contextName)
@@ -539,7 +578,7 @@ func runEnvUnset(cmd *cobra.Command, args []string) error {
 
 func runEnvExport(cmd *cobra.Command, args []string) error {
 	// Initialize logger
-	logger.Init(verboseFlag, debugFlag)
+	logger.Init(envVerbose, envDebug)
 
 	// Load config
 	cfg, projectRoot, err := config.LoadConfig()
@@ -560,7 +599,7 @@ func runEnvExport(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load registry
-	reg, err := registry.LoadRegistry()
+	reg, err := registry.LoadRegistry(projectRoot)
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
 	}
@@ -569,7 +608,7 @@ func runEnvExport(cmd *cobra.Command, args []string) error {
 	// Get context from registry
 	ctx, err := reg.GetContext(projectIdentifier, contextName)
 	if err != nil {
-		return fmt.Errorf("context %q not found in registry\nHint: Run 'dual context create' to create this context", contextName)
+		return fmt.Errorf("context %q not found in registry\nHint: Run 'dual create <branch>' to create a worktree with a context", contextName)
 	}
 
 	// If service is specified, validate it exists in config
@@ -582,8 +621,8 @@ func runEnvExport(cmd *cobra.Command, args []string) error {
 	// Get environment overrides for the specified service (or global if no service specified)
 	overrides := ctx.GetEnvOverrides(envServiceFlag)
 
-	// Load layered environment (with PORT as placeholder - will be replaced by actual port at runtime)
-	layeredEnv, err := env.LoadLayeredEnv(projectRoot, cfg, contextName, overrides, 0)
+	// Load layered environment
+	layeredEnv, err := env.LoadLayeredEnv(projectRoot, cfg, contextName, overrides)
 	if err != nil {
 		return fmt.Errorf("failed to load environment: %w", err)
 	}
@@ -631,7 +670,7 @@ func runEnvExport(cmd *cobra.Command, args []string) error {
 
 func runEnvCheck(cmd *cobra.Command, args []string) error {
 	// Initialize logger
-	logger.Init(verboseFlag, debugFlag)
+	logger.Init(envVerbose, envDebug)
 
 	// Load config
 	cfg, projectRoot, err := config.LoadConfig()
@@ -672,7 +711,7 @@ func runEnvCheck(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "Error: Failed to get project identifier: %v\n", err)
 		hasIssues = true
 	} else {
-		reg, err := registry.LoadRegistry()
+		reg, err := registry.LoadRegistry(projectIdentifier)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: Failed to load registry: %v\n", err)
 			hasIssues = true
@@ -723,7 +762,7 @@ func runEnvDiff(cmd *cobra.Command, args []string) error {
 	context2 := args[1]
 
 	// Initialize logger
-	logger.Init(verboseFlag, debugFlag)
+	logger.Init(envVerbose, envDebug)
 
 	// Load environments for both contexts
 	merged1, merged2, err := loadAndMergeContextEnvs(context1, context2)
@@ -754,7 +793,7 @@ func loadAndMergeContextEnvs(context1, context2 string) (map[string]string, map[
 	}
 
 	// Load registry
-	reg, err := registry.LoadRegistry()
+	reg, err := registry.LoadRegistry(projectIdentifier)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to load registry: %w", err)
 	}
@@ -771,13 +810,13 @@ func loadAndMergeContextEnvs(context1, context2 string) (map[string]string, map[
 		return nil, nil, fmt.Errorf("context %q not found in registry", context2)
 	}
 
-	// Load environments for both contexts
-	env1, err := env.LoadLayeredEnv(projectRoot, cfg, context1, ctx1.EnvOverrides, 0)
+	// Load environments for both contexts (using global overrides)
+	env1, err := env.LoadLayeredEnv(projectRoot, cfg, context1, ctx1.GetEnvOverrides(""))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to load environment for %q: %w", context1, err)
 	}
 
-	env2, err := env.LoadLayeredEnv(projectRoot, cfg, context2, ctx2.EnvOverrides, 0)
+	env2, err := env.LoadLayeredEnv(projectRoot, cfg, context2, ctx2.GetEnvOverrides(""))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to load environment for %q: %w", context2, err)
 	}
@@ -795,9 +834,6 @@ func calculateEnvDiff(merged1, merged2 map[string]string) envDiff {
 
 	// Find changed and removed
 	for k, v1 := range merged1 {
-		if k == "PORT" {
-			continue // Skip PORT comparison
-		}
 		if v2, exists := merged2[k]; exists {
 			if v1 != v2 {
 				diff.changed[k] = [2]string{v1, v2}
@@ -809,9 +845,6 @@ func calculateEnvDiff(merged1, merged2 map[string]string) envDiff {
 
 	// Find added
 	for k, v2 := range merged2 {
-		if k == "PORT" {
-			continue // Skip PORT comparison
-		}
 		if _, exists := merged1[k]; !exists {
 			diff.added[k] = v2
 		}
@@ -878,4 +911,52 @@ func displayRemovedVars(removed map[string]string) {
 		fmt.Printf("  %s=%s\n", k, removed[k])
 	}
 	fmt.Println()
+}
+
+func runEnvRemap(cmd *cobra.Command, args []string) error {
+	// Initialize logger
+	logger.Init(envVerbose, envDebug)
+
+	// Load config
+	cfg, projectRoot, err := config.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w\nHint: Run 'dual init' to create a configuration file", err)
+	}
+
+	// Detect context
+	contextName, err := context.DetectContext()
+	if err != nil {
+		return fmt.Errorf("failed to detect context: %w", err)
+	}
+
+	// Get project identifier
+	projectIdentifier, err := config.GetProjectIdentifier(projectRoot)
+	if err != nil {
+		return fmt.Errorf("failed to get project identifier: %w", err)
+	}
+
+	// Load registry
+	reg, err := registry.LoadRegistry(projectRoot)
+	if err != nil {
+		return fmt.Errorf("failed to load registry: %w", err)
+	}
+	defer reg.Close()
+
+	// Check if context exists
+	_, err = reg.GetContext(projectIdentifier, contextName)
+	if err != nil {
+		return fmt.Errorf("context %q not found in registry\nHint: Run 'dual create <branch>' to create a worktree with a context", contextName)
+	}
+
+	fmt.Fprintf(os.Stderr, "[dual] Regenerating service env files for context '%s'...\n", contextName)
+
+	// Generate service env files
+	if err := env.GenerateServiceEnvFiles(cfg, reg, projectRoot, projectIdentifier, contextName); err != nil {
+		return fmt.Errorf("failed to generate service env files: %w", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "[dual] Service env files regenerated successfully\n")
+	fmt.Fprintf(os.Stderr, "  Files written to: %s/.dual/.local/service/<service>/.env\n", projectRoot)
+
+	return nil
 }

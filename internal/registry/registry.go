@@ -14,11 +14,12 @@ import (
 	"github.com/gofrs/flock"
 )
 
-// Registry represents the global registry structure stored in ~/.dual/registry.json
+// Registry represents the project-local registry structure stored in $PROJECT_ROOT/.dual/.local/registry.json
 type Registry struct {
-	Projects map[string]Project `json:"projects"`
-	mu       sync.RWMutex       `json:"-"`
-	flock    *flock.Flock       `json:"-"` // File lock for atomic operations
+	Projects    map[string]Project `json:"projects"`
+	mu          sync.RWMutex       `json:"-"`
+	flock       *flock.Flock       `json:"-"` // File lock for atomic operations
+	projectRoot string             `json:"-"` // Project root path for SaveRegistry
 }
 
 // Project represents a single project in the registry
@@ -36,9 +37,7 @@ type ContextEnvOverrides struct {
 type Context struct {
 	Created        time.Time            `json:"created"`
 	Path           string               `json:"path,omitempty"`
-	BasePort       int                  `json:"basePort"`
-	EnvOverrides   map[string]string    `json:"envOverrides,omitempty"`   // Deprecated: use EnvOverridesV2
-	EnvOverridesV2 *ContextEnvOverrides `json:"envOverridesV2,omitempty"` // New: layered overrides
+	EnvOverridesV2 *ContextEnvOverrides `json:"envOverridesV2,omitempty"` // Layered overrides
 }
 
 var (
@@ -48,42 +47,30 @@ var (
 	ErrContextNotFound = errors.New("context not found in project")
 	// ErrLockTimeout is returned when file lock acquisition times out
 	ErrLockTimeout = errors.New("timeout waiting for registry lock")
-	// DefaultBasePort is the starting port for new contexts
-	DefaultBasePort = 4100
-	// PortIncrement is the increment between base ports
-	PortIncrement = 100
 	// LockTimeout is the timeout for acquiring the registry lock
 	LockTimeout = 5 * time.Second
 )
 
-// GetRegistryPath returns the path to the registry file
-func GetRegistryPath() (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get home directory: %w", err)
-	}
-	return filepath.Join(homeDir, ".dual", "registry.json"), nil
+// GetRegistryPath returns the path to the project-local registry file
+func GetRegistryPath(projectRoot string) (string, error) {
+	return filepath.Join(projectRoot, ".dual", ".local", "registry.json"), nil
 }
 
-// GetLockPath returns the path to the registry lock file
-func GetLockPath() (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get home directory: %w", err)
-	}
-	return filepath.Join(homeDir, ".dual", "registry.json.lock"), nil
+// GetLockPath returns the path to the project-local registry lock file
+func GetLockPath(projectRoot string) (string, error) {
+	return filepath.Join(projectRoot, ".dual", ".local", "registry.json.lock"), nil
 }
 
-// LoadRegistry reads the registry from ~/.dual/registry.json with file locking
+// LoadRegistry reads the registry from $PROJECT_ROOT/.dual/.local/registry.json with file locking
 // If the file doesn't exist or is corrupt, it returns a new empty registry
 // The caller MUST call Close() on the returned registry to release the lock
-func LoadRegistry() (*Registry, error) {
-	registryPath, err := GetRegistryPath()
+func LoadRegistry(projectRoot string) (*Registry, error) {
+	registryPath, err := GetRegistryPath(projectRoot)
 	if err != nil {
 		return nil, err
 	}
 
-	lockPath, err := GetLockPath()
+	lockPath, err := GetLockPath(projectRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +78,7 @@ func LoadRegistry() (*Registry, error) {
 	// Ensure directory exists before creating lock file
 	registryDir := filepath.Dir(registryPath)
 	if err := os.MkdirAll(registryDir, 0o750); err != nil {
-		return nil, fmt.Errorf("failed to create registry directory: %w", err)
+		return nil, fmt.Errorf("failed to create project-local registry directory: %w", err)
 	}
 
 	// Create file lock
@@ -111,9 +98,10 @@ func LoadRegistry() (*Registry, error) {
 
 	// Initialize registry
 	registry := &Registry{
-		Projects: make(map[string]Project),
-		mu:       sync.RWMutex{},
-		flock:    fileLock,
+		Projects:    make(map[string]Project),
+		mu:          sync.RWMutex{},
+		flock:       fileLock,
+		projectRoot: projectRoot,
 	}
 
 	// If file doesn't exist, return empty registry (but keep the lock)
@@ -136,7 +124,7 @@ func LoadRegistry() (*Registry, error) {
 	}
 	if err := json.Unmarshal(data, &loadedData); err != nil {
 		// If corrupt, log warning but continue with empty registry (keep the lock)
-		fmt.Fprintf(os.Stderr, "[dual] Warning: corrupt registry file, creating new one: %v\n", err)
+		fmt.Fprintf(os.Stderr, "[dual] Warning: corrupt registry file in project-local .dual directory, creating new one: %v\n", err)
 		return registry, nil
 	}
 
@@ -148,12 +136,13 @@ func LoadRegistry() (*Registry, error) {
 	return registry, nil
 }
 
-// SaveRegistry writes the registry to ~/.dual/registry.json atomically
+// SaveRegistry writes the registry to $PROJECT_ROOT/.dual/.local/registry.json atomically
+// Uses the stored projectRoot field from LoadRegistry
 func (r *Registry) SaveRegistry() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	registryPath, err := GetRegistryPath()
+	registryPath, err := GetRegistryPath(r.projectRoot)
 	if err != nil {
 		return err
 	}
@@ -161,7 +150,7 @@ func (r *Registry) SaveRegistry() error {
 	// Ensure directory exists
 	registryDir := filepath.Dir(registryPath)
 	if err := os.MkdirAll(registryDir, 0o750); err != nil {
-		return fmt.Errorf("failed to create registry directory: %w", err)
+		return fmt.Errorf("failed to create project-local registry directory: %w", err)
 	}
 
 	// Marshal to JSON with indentation for readability
@@ -204,7 +193,7 @@ func (r *Registry) GetContext(projectPath, contextName string) (*Context, error)
 }
 
 // SetContext creates or updates a context for a given project
-func (r *Registry) SetContext(projectPath, contextName string, basePort int, contextPath string) error {
+func (r *Registry) SetContext(projectPath, contextName string, contextPath string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -221,15 +210,13 @@ func (r *Registry) SetContext(projectPath, contextName string, basePort int, con
 	// Preserve existing env overrides if updating
 	existingContext, exists := project.Contexts[contextName]
 	newContext := Context{
-		Created:      time.Now(),
-		Path:         contextPath,
-		BasePort:     basePort,
-		EnvOverrides: make(map[string]string),
+		Created: time.Now(),
+		Path:    contextPath,
 	}
 
 	// Preserve existing overrides if context already exists
-	if exists && existingContext.EnvOverrides != nil {
-		newContext.EnvOverrides = existingContext.EnvOverrides
+	if exists && existingContext.EnvOverridesV2 != nil {
+		newContext.EnvOverridesV2 = existingContext.EnvOverridesV2
 	}
 
 	project.Contexts[contextName] = newContext
@@ -336,30 +323,6 @@ func (r *Registry) ListContexts(projectPath string) (map[string]Context, error) 
 	return contexts, nil
 }
 
-// FindNextAvailablePort scans all existing base ports and returns the next available one
-// It increments by PortIncrement (default 100)
-func (r *Registry) FindNextAvailablePort() int {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	usedPorts := make(map[int]bool)
-
-	// Collect all used base ports
-	for _, project := range r.Projects {
-		for _, context := range project.Contexts {
-			usedPorts[context.BasePort] = true
-		}
-	}
-
-	// Find next available port starting from DefaultBasePort
-	nextPort := DefaultBasePort
-	for {
-		if !usedPorts[nextPort] {
-			return nextPort
-		}
-		nextPort += PortIncrement
-	}
-}
 
 // GetAllProjects returns a list of all project paths in the registry
 func (r *Registry) GetAllProjects() []string {
@@ -401,15 +364,9 @@ func (r *Registry) Close() error {
 }
 
 // GetEnvOverrides returns environment overrides for a context
-// Automatically migrates old format to new if needed
 // serviceName can be empty string for global overrides
 func (c *Context) GetEnvOverrides(serviceName string) map[string]string {
-	// Auto-migrate if needed
-	if c.EnvOverridesV2 == nil && c.EnvOverrides != nil {
-		c.migrateEnvOverrides()
-	}
-
-	// If still nil, return empty map
+	// If nil, return empty map
 	if c.EnvOverridesV2 == nil {
 		return make(map[string]string)
 	}
@@ -432,21 +389,6 @@ func (c *Context) GetEnvOverrides(serviceName string) map[string]string {
 	}
 
 	return result
-}
-
-// migrateEnvOverrides migrates old format (flat map) to new format (layered)
-func (c *Context) migrateEnvOverrides() {
-	if c.EnvOverrides == nil {
-		return
-	}
-
-	c.EnvOverridesV2 = &ContextEnvOverrides{
-		Global:   c.EnvOverrides,
-		Services: make(map[string]map[string]string),
-	}
-
-	// Clear old format to prevent confusion
-	c.EnvOverrides = nil
 }
 
 // SetEnvOverride sets an environment override for a context

@@ -1,116 +1,92 @@
 # dual Usage Guide
 
-Complete reference for all `dual` commands and their usage.
+Complete reference for all `dual` commands and their usage in v0.3.0.
 
 ## Table of Contents
 
-- [Command Wrapper](#command-wrapper)
+- [Overview](#overview)
+- [Installation](#installation)
 - [Initialization Commands](#initialization-commands)
   - [dual init](#dual-init)
 - [Service Management](#service-management)
   - [dual service add](#dual-service-add)
   - [dual service list](#dual-service-list)
   - [dual service remove](#dual-service-remove)
+- [Worktree Management](#worktree-management)
+  - [dual create](#dual-create)
+  - [dual delete](#dual-delete)
 - [Context Management](#context-management)
-  - [dual context](#dual-context)
-  - [dual context create](#dual-context-create)
   - [dual context list](#dual-context-list)
-  - [dual context delete](#dual-context-delete)
-- [Environment Management](#environment-management)
-  - [dual env / dual env show](#dual-env--dual-env-show)
-  - [dual env set](#dual-env-set)
-  - [dual env unset](#dual-env-unset)
-  - [dual env export](#dual-env-export)
-  - [dual env check](#dual-env-check)
-  - [dual env diff](#dual-env-diff)
-- [Port Queries](#port-queries)
-  - [dual port](#dual-port)
-  - [dual ports](#dual-ports)
+- [Hook System](#hook-system)
+  - [Lifecycle Events](#lifecycle-events)
+  - [Hook Configuration](#hook-configuration)
+  - [Hook Environment Variables](#hook-environment-variables)
+  - [Hook Examples](#hook-examples)
 - [Utility Commands](#utility-commands)
-  - [dual open](#dual-open)
-  - [dual sync](#dual-sync)
+  - [dual doctor](#dual-doctor)
+- [Configuration Reference](#configuration-reference)
+- [Project-Local Registry](#project-local-registry)
 - [Debug & Verbose Options](#debug--verbose-options)
 - [Common Workflows](#common-workflows)
 
 ---
 
-## Command Wrapper
+## Overview
 
-The primary interface for `dual`. Wraps any command and injects the `PORT` environment variable.
+`dual` is a CLI tool for managing git worktree lifecycle with environment remapping via hooks. It enables developers to work on multiple features simultaneously by automating worktree setup and providing a flexible hook system for custom environment configuration.
 
-### Syntax
+### Key Features
 
-```bash
-dual [--service <name>] <command> [args...]
-```
+- **Worktree Lifecycle Management**: Create and delete git worktrees with integrated hooks
+- **Hook-Based Customization**: Implement custom logic (ports, databases, dependencies) in hook scripts
+- **Project-Local State**: Each project has its own isolated registry and hooks
+- **Transparent Operations**: Always see what operations are being performed
+- **Fail-Safe**: Helpful errors instead of crashes
 
-### Options
+### Architecture
 
-- `--service <name>` - Override automatic service detection and use the specified service
+In v0.3.0, `dual` operates in **Management Mode** with direct subcommands:
+- `dual create <branch>` - Create a new worktree with lifecycle hooks
+- `dual delete <context>` - Delete a worktree with cleanup hooks
+- `dual init` - Initialize dual configuration
+- `dual service add/list/remove` - Manage service definitions
+- `dual context list` - List contexts
+- `dual doctor` - Diagnose configuration and registry health
 
-### Examples
+### What's New in v0.3.0
 
-#### Basic Usage
+**Hook-Based Architecture**: Dual no longer manages ports automatically. Instead, implement custom logic in lifecycle hooks:
+- Port assignment
+- Database branch creation/deletion
+- Environment configuration
+- Dependency installation
+- Team notifications
+- Any custom automation
 
-```bash
-# Run development server with auto-detected port
-dual pnpm dev
+**Project-Local Registry**: Registry moved from `~/.dual/registry.json` to `$PROJECT_ROOT/.dual/.local/registry.json` for per-project isolation.
 
-# Run with npm
-dual npm start
+**Simplified Commands**: Focused on worktree lifecycle management.
 
-# Run with bun
-dual bun run dev
+---
 
-# Run with yarn
-dual yarn dev
-```
+## Installation
 
-#### Building Applications
-
-```bash
-# Next.js build with correct port
-dual pnpm build
-
-# Vite build
-dual npm run build
-```
-
-#### Running Scripts
+### Homebrew (macOS/Linux)
 
 ```bash
-# Run database migrations
-dual node scripts/migrate.js
-
-# Run tests
-dual npm test
-
-# Run custom scripts
-dual python manage.py runserver
+brew tap lightfastai/tap
+brew install dual
 ```
 
-#### Service Override
+### Manual Installation
 
-When working from outside a service directory or when auto-detection picks the wrong service:
+Download the latest release from [GitHub Releases](https://github.com/lightfastai/dual/releases) and add to your PATH.
+
+### Verify Installation
 
 ```bash
-# Force using the "api" service
-dual --service api pnpm dev
-
-# Force using "web" service from project root
-cd ~/Code/myproject
-dual --service web npm start
+dual --version
 ```
-
-### What Happens
-
-When you run `dual <command>`:
-
-1. Detects current context (git branch, falls back to `.dual-context` file, then "default")
-2. Detects current service (from working directory or `--service` flag)
-3. Calculates the port: `basePort + serviceIndex + 1` (services sorted alphabetically)
-4. Executes the command with `PORT` in the environment
-5. Prints context info to stderr: `[dual] Context: main | Service: web | Port: 4101`
 
 ---
 
@@ -157,13 +133,15 @@ services: {}
 
 Next steps:
   1. Add services with: dual service add <name> --path <path>
-  2. Create a context with: dual context create
-  3. Run your commands with: dual <command>
+  2. Configure worktrees section for dual create/delete
+  3. Add hook scripts to .dual/hooks/ for automation
 ```
 
 ---
 
 ## Service Management
+
+Services define the different components of your project (web, api, worker, etc.). Service definitions are used for context and path validation.
 
 ### dual service add
 
@@ -177,12 +155,12 @@ dual service add <name> --path <path> [--env-file <file>]
 
 #### Arguments
 
-- `<name>` - Service name (used in commands and port calculations)
+- `<name>` - Service name (used in commands)
 
 #### Options
 
 - `--path <path>` - **Required.** Relative path from project root to service directory
-- `--env-file <file>` - Optional. Relative path to env file for `dual sync` command
+- `--env-file <file>` - Optional. Relative path to env file (for reference)
 
 #### Examples
 
@@ -197,7 +175,7 @@ dual service add app --path . --env-file .env.local
 
 ```bash
 # Add web frontend
-dual service add web --path apps/web --env-file .vercel/.env.development.local
+dual service add web --path apps/web --env-file .env.local
 
 # Add API backend
 dual service add api --path apps/api --env-file .env
@@ -209,7 +187,7 @@ dual service add worker --path apps/worker --env-file .env.local
 ##### Without Env File
 
 ```bash
-# Add service without env file (won't be updated by `dual sync`)
+# Add service without env file reference
 dual service add docs --path docs
 ```
 
@@ -218,14 +196,13 @@ dual service add docs --path docs
 ```
 [dual] Added service "web"
   Path: apps/web
-  Env File: .vercel/.env.development.local
+  Env File: .env.local
 ```
 
 #### Notes
 
 - Paths must be relative to project root (where `dual.config.yml` is located)
 - Paths must exist before adding the service
-- Services are sorted **alphabetically** for port calculation (not by config order!)
 - Service names must be unique
 
 ---
@@ -237,13 +214,12 @@ List all services in your configuration.
 #### Syntax
 
 ```bash
-dual service list [--json] [--ports] [--paths]
+dual service list [--json] [--paths]
 ```
 
 #### Options
 
 - `--json` - Output in JSON format for machine-readable processing
-- `--ports` - Show port assignments for each service in the current context
 - `--paths` - Show absolute paths instead of relative paths
 
 #### Examples
@@ -258,24 +234,8 @@ Output:
 ```
 Services in dual.config.yml:
   api     apps/api      .env
-  web     apps/web      .vercel/.env.development.local
+  web     apps/web      .env.local
   worker  apps/worker   .env.local
-
-Total: 3 services
-```
-
-##### With Port Assignments
-
-```bash
-dual service list --ports
-```
-
-Output:
-```
-Services (context: main, base: 4100):
-  api     apps/api      Port: 4101
-  web     apps/web      Port: 4102
-  worker  apps/worker   Port: 4103
 
 Total: 3 services
 ```
@@ -290,7 +250,7 @@ Output:
 ```
 Services in dual.config.yml:
   api     /Users/dev/Code/myproject/apps/api      .env
-  web     /Users/dev/Code/myproject/apps/web      .vercel/.env.development.local
+  web     /Users/dev/Code/myproject/apps/web      .env.local
   worker  /Users/dev/Code/myproject/apps/worker   .env.local
 
 Total: 3 services
@@ -299,7 +259,7 @@ Total: 3 services
 ##### JSON Format
 
 ```bash
-dual service list --json --ports
+dual service list --json
 ```
 
 Output:
@@ -309,20 +269,17 @@ Output:
     {
       "name": "api",
       "path": "apps/api",
-      "envFile": ".env",
-      "port": 4101
+      "envFile": ".env"
     },
     {
       "name": "web",
       "path": "apps/web",
-      "envFile": ".vercel/.env.development.local",
-      "port": 4102
+      "envFile": ".env.local"
     },
     {
       "name": "worker",
       "path": "apps/worker",
-      "envFile": ".env.local",
-      "port": 4103
+      "envFile": ".env.local"
     }
   ]
 }
@@ -331,7 +288,6 @@ Output:
 #### Use Cases
 
 - **Quick Reference**: See all configured services at a glance
-- **Port Planning**: Check port assignments before starting services
 - **CI/CD Integration**: Use JSON output for automated scripts
 - **Documentation**: Generate service documentation from configuration
 
@@ -365,10 +321,8 @@ dual service remove worker
 
 Output:
 ```
-Warning: Removing "worker" will change port assignments:
-  api: 4102 → 4101 (will move to index 0)
-  web: 4103 → 4102 (will move to index 1)
-
+Remove service "worker" from configuration?
+This will only remove the service definition, not any files.
 Continue? (y/N): y
 [dual] Service "worker" removed from config
 ```
@@ -386,166 +340,247 @@ Output:
 
 #### Behavior
 
-**Port Assignment Changes**: Removing a service changes port assignments for all services that come after it alphabetically, since ports are calculated based on sorted order.
-
-**Confirmation**: By default, shows which services will be affected and prompts for confirmation. Use `--force` to skip.
-
 **File Safety**: This command only removes the service from `dual.config.yml`. It does NOT delete any files or directories.
 
-#### Warning
+---
 
-After removing a service, any running instances of affected services will need to be restarted to use their new ports.
+## Worktree Management
+
+Worktree management is the core feature of `dual`. Create isolated development environments for each feature branch with automated setup and cleanup via hooks.
+
+### dual create
+
+Create a new git worktree with integrated context setup and lifecycle hooks.
+
+#### Syntax
+
+```bash
+dual create <branch> [--from <base-branch>]
+```
+
+#### Arguments
+
+- `<branch>` - Branch name for the new worktree
+
+#### Options
+
+- `--from <base-branch>` - Create branch from specified base branch (default: current branch)
+
+#### Requirements
+
+- Must be run from the main repository (not from within a worktree)
+- `worktrees.path` must be configured in `dual.config.yml`
+- Repository must not already have a branch with that name
+
+#### Examples
+
+##### Basic Worktree Creation
+
+```bash
+# Create worktree for feature branch
+dual create feature-auth
+```
+
+Output:
+```
+[dual] Creating worktree for: feature-auth
+[dual] Worktree path: /Users/dev/Code/myproject-wt/feature-auth
+[dual] Creating git worktree...
+[dual] Registering context in registry...
+[dual] Executing postWorktreeCreate hooks...
+
+Running hook: setup-environment.sh
+Setting up environment for: feature-auth
+Assigned port: 4237
+✓ Created .env.local
+
+Running hook: install-dependencies.sh
+Installing dependencies for: feature-auth
+✓ Dependencies installed
+
+[dual] Successfully created worktree: feature-auth
+  Path: /Users/dev/Code/myproject-wt/feature-auth
+  Branch: feature-auth
+```
+
+##### Create from Specific Base Branch
+
+```bash
+# Create feature branch from develop instead of main
+dual create feature-new-api --from develop
+```
+
+##### With Custom Naming Pattern
+
+If your `dual.config.yml` has:
+```yaml
+worktrees:
+  path: ../worktrees
+  naming: "wt-{branch}"
+```
+
+Then:
+```bash
+dual create feature-x
+# Creates: ../worktrees/wt-feature-x
+```
+
+#### What Happens
+
+1. **Validation**: Checks if worktrees configuration exists, validates branch name
+2. **Git Worktree Creation**: Runs `git worktree add <path> -b <branch>`
+3. **Registry Update**: Adds context to project-local registry
+4. **Hook Execution**: Runs `postWorktreeCreate` hooks sequentially
+
+#### Configuration Required
+
+Add to `dual.config.yml`:
+
+```yaml
+worktrees:
+  path: ../worktrees           # Where to create worktrees
+  naming: "{branch}"           # Directory naming pattern
+
+hooks:
+  postWorktreeCreate:
+    - setup-environment.sh
+    - install-dependencies.sh
+```
+
+#### Error Cases
+
+```
+Error: worktrees.path not configured in dual.config.yml
+Hint: Add worktrees configuration to use 'dual create'
+```
+
+Solution: Add worktrees section to config.
+
+```
+Error: must be in main repository to create worktree
+Hint: Run this command from the main repository, not from within a worktree
+```
+
+Solution: Change to main repository directory.
+
+---
+
+### dual delete
+
+Delete a worktree with cleanup hooks.
+
+#### Syntax
+
+```bash
+dual delete <context> [--force]
+```
+
+#### Arguments
+
+- `<context>` - Context name (usually branch name) to delete
+
+#### Options
+
+- `--force` or `-f` - Skip confirmation prompt
+
+#### Requirements
+
+- Context must exist in registry
+- Context must be a worktree (not main repository)
+- Worktree directory must exist
+
+#### Examples
+
+##### Interactive Deletion
+
+```bash
+dual delete feature-old
+```
+
+Output:
+```
+About to delete worktree: feature-old
+  Path: /Users/dev/Code/myproject-wt/feature-old
+  Created: 2025-10-10T14:30:00Z
+
+Are you sure you want to delete this worktree? (y/N): y
+
+[dual] Executing preWorktreeDelete hooks...
+
+Running hook: backup-data.sh
+Backing up data for: feature-old
+✓ Data backed up to ~/backups/feature-old.sql
+
+Running hook: cleanup-database.sh
+Cleaning up database for: feature-old
+✓ Database branch deleted
+
+[dual] Removing git worktree...
+[dual] Removing from registry...
+[dual] Executing postWorktreeDelete hooks...
+
+Running hook: notify-team.sh
+✓ Team notified
+
+[dual] Successfully deleted worktree: feature-old
+```
+
+##### Force Deletion (No Confirmation)
+
+```bash
+dual delete feature-old --force
+```
+
+#### What Happens
+
+1. **Validation**: Checks if context exists and is a worktree
+2. **Pre-Delete Hooks**: Runs `preWorktreeDelete` hooks (files still exist)
+3. **Git Worktree Removal**: Runs `git worktree remove <path>`
+4. **Registry Update**: Removes context from registry
+5. **Post-Delete Hooks**: Runs `postWorktreeDelete` hooks (files are gone)
+
+#### Hook Timing
+
+- **preWorktreeDelete**: Files still exist - good for backups, database cleanup
+- **postWorktreeDelete**: Files are gone - good for notifications, external cleanup
+
+#### Error Cases
+
+```
+Error: context "feature-x" not found in registry
+Hint: Run 'dual context list' to see available contexts
+```
+
+Solution: Check context name with `dual context list`.
+
+```
+Error: context "main" is not a worktree (has no path)
+Hint: Use 'dual delete' only for worktrees, not the main repository
+```
+
+Solution: Cannot delete main repository context.
 
 ---
 
 ## Context Management
 
-### dual context
-
-Show information about the current context.
-
-#### Syntax
-
-```bash
-dual context [--json]
-```
-
-#### Options
-
-- `--json` - Output as JSON instead of human-readable format
-
-#### Examples
-
-##### Human-Readable Output
-
-```bash
-dual context
-```
-
-Output:
-```
-Context: main
-Base Port: 4100
-```
-
-##### JSON Output
-
-```bash
-dual context --json
-```
-
-Output:
-```json
-{
-  "name": "main",
-  "basePort": 4100
-}
-```
-
-##### With Worktree Path
-
-```bash
-cd ~/Code/myproject-wt/feature-auth
-dual context
-```
-
-Output:
-```
-Context: feature-auth
-Base Port: 4200
-Path: /Users/dev/Code/myproject-wt/feature-auth
-```
-
----
-
-### dual context create
-
-Create a new development context with an assigned base port.
-
-#### Syntax
-
-```bash
-dual context create [name] [--base-port <port>]
-```
-
-#### Arguments
-
-- `[name]` - Optional. Context name. If omitted, auto-detects from git branch or uses "default"
-
-#### Options
-
-- `--base-port <port>` - Optional. Base port for this context (1024-65535). If omitted, auto-assigns next available port
-
-#### Examples
-
-##### Auto-Detected Context Name
-
-```bash
-# On branch "main"
-git checkout main
-dual context create
-# Creates context "main" with auto-assigned port
-```
-
-##### Explicit Context Name
-
-```bash
-# Create context with specific name
-dual context create staging --base-port 5100
-```
-
-##### Auto-Assigned Port
-
-```bash
-# Let dual assign next available port
-dual context create feature-auth
-```
-
-Output:
-```
-[dual] Auto-assigned base port: 4200
-[dual] Created context "feature-auth"
-  Project: /Users/dev/Code/myproject
-  Base Port: 4200
-
-Services will be assigned ports starting from: 4201
-```
-
-##### Specific Base Port
-
-```bash
-# Use custom base port
-dual context create main --base-port 4100
-```
-
-#### Notes
-
-- Base ports are typically assigned in increments of 100 (4100, 4200, 4300, etc.)
-- Each context must have a unique base port
-- Contexts are stored in `~/.dual/registry.json`
-- Multiple worktrees of the same project can have different contexts
-
----
-
 ### dual context list
 
-List all contexts for the current project or all projects.
+List all contexts for the current project.
 
 #### Syntax
 
 ```bash
-dual context list [--json] [--ports] [--all]
+dual context list [--json]
 ```
 
 #### Options
 
 - `--json` - Output in JSON format for machine-readable processing
-- `--ports` - Show calculated port assignments for each service in each context
-- `--all` - Include contexts from all projects in the registry
 
 #### Examples
 
-##### List Contexts for Current Project
+##### Basic List
 
 ```bash
 dual context list
@@ -554,82 +589,39 @@ dual context list
 Output:
 ```
 Contexts for /Users/dev/Code/myproject:
-NAME          BASE PORT  CREATED     CURRENT
-main          4100       2024-01-15  (current)
-feature-auth  4200       2024-01-16
-staging       5100       2024-01-10
+NAME          PATH                                              CREATED
+main          (main repository)                                 2025-10-01T10:00:00Z
+feature-auth  /Users/dev/Code/myproject-wt/feature-auth        2025-10-10T14:30:00Z
+feature-api   /Users/dev/Code/myproject-wt/feature-api         2025-10-12T09:15:00Z
 
-Total: 3 contexts
-```
-
-##### List with Port Assignments
-
-```bash
-dual context list --ports
-```
-
-Output:
-```
-Contexts for /Users/dev/Code/myproject:
-NAME          BASE PORT  CREATED     PORTS                              CURRENT
-main          4100       2024-01-15  api:4101, web:4102, worker:4103   (current)
-feature-auth  4200       2024-01-16  api:4201, web:4202, worker:4203
-staging       5100       2024-01-10  api:5101, web:5102, worker:5103
-
-Total: 3 contexts
-```
-
-##### List All Projects
-
-```bash
-dual context list --all
-```
-
-Output:
-```
-Project: /Users/dev/Code/myproject
-NAME          BASE PORT  CREATED     CURRENT
-main          4100       2024-01-15
-feature-auth  4200       2024-01-16
-
-Project: /Users/dev/Code/otherproject
-NAME          BASE PORT  CREATED     CURRENT
-main          4300       2024-01-12  (current)
-
-Total: 3 contexts across 2 projects
+Total: 3 contexts (1 main, 2 worktrees)
 ```
 
 ##### JSON Format
 
 ```bash
-dual context list --json --ports
+dual context list --json
 ```
 
 Output:
 ```json
 {
   "projectRoot": "/Users/dev/Code/myproject",
-  "currentContext": "main",
   "contexts": [
     {
       "name": "main",
-      "basePort": 4100,
-      "created": "2024-01-15T10:30:00Z",
-      "ports": {
-        "api": 4101,
-        "web": 4102,
-        "worker": 4103
-      }
+      "path": "",
+      "created": "2025-10-01T10:00:00Z"
     },
     {
       "name": "feature-auth",
-      "basePort": 4200,
-      "created": "2024-01-16T14:20:00Z",
-      "ports": {
-        "api": 4201,
-        "web": 4202,
-        "worker": 4203
-      }
+      "path": "/Users/dev/Code/myproject-wt/feature-auth",
+      "created": "2025-10-10T14:30:00Z"
+    },
+    {
+      "name": "feature-api",
+      "path": "/Users/dev/Code/myproject-wt/feature-api",
+      "created": "2025-10-12T09:15:00Z"
     }
   ]
 }
@@ -637,912 +629,514 @@ Output:
 
 #### Use Cases
 
-- **Context Overview**: See all contexts and their port ranges at a glance
-- **Port Planning**: Check port assignments across contexts to avoid conflicts
-- **CI/CD Integration**: Use JSON output for automated deployment scripts
-- **Multi-Project Management**: Track contexts across all projects with `--all`
+- **Context Overview**: See all contexts at a glance
+- **CI/CD Integration**: Use JSON output for automated scripts
+- **Worktree Management**: Track all active worktrees
 
 ---
 
-### dual context delete
+## Hook System
 
-Delete a context from the registry.
+The hook system is the core of `dual`'s automation capabilities. Hooks run at key points during worktree lifecycle to enable custom logic like port assignment, database setup, dependency installation, and cleanup.
 
-#### Syntax
+### Lifecycle Events
+
+- **`postWorktreeCreate`**: Runs after creating a git worktree and registering the context
+- **`preWorktreeDelete`**: Runs before deleting a worktree, while files still exist
+- **`postWorktreeDelete`**: Runs after deleting a worktree and removing from registry
+
+### Hook Configuration
+
+Hook scripts are stored in `$PROJECT_ROOT/.dual/hooks/` and configured in `dual.config.yml`:
+
+```yaml
+version: 1
+
+services:
+  web:
+    path: ./apps/web
+  api:
+    path: ./apps/api
+
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
+
+hooks:
+  postWorktreeCreate:
+    - setup-database.sh
+    - setup-environment.sh
+    - install-dependencies.sh
+  preWorktreeDelete:
+    - backup-data.sh
+    - cleanup-database.sh
+  postWorktreeDelete:
+    - notify-team.sh
+```
+
+**Script location**: All hook scripts must be in `$PROJECT_ROOT/.dual/hooks/`
+
+**Script requirements**:
+- Must be executable (`chmod +x .dual/hooks/script.sh`)
+- Must use shebang line (`#!/bin/bash`)
+- Should exit with non-zero code on failure
+
+### Hook Environment Variables
+
+Hook scripts receive the following environment variables:
+
+- **`DUAL_EVENT`**: The hook event name (e.g., `postWorktreeCreate`)
+- **`DUAL_CONTEXT_NAME`**: Context name (usually the branch name)
+- **`DUAL_CONTEXT_PATH`**: Absolute path to the worktree directory
+- **`DUAL_PROJECT_ROOT`**: Absolute path to the main repository
+
+**Example usage in hook script**:
+```bash
+#!/bin/bash
+echo "Event: $DUAL_EVENT"
+echo "Context: $DUAL_CONTEXT_NAME"
+echo "Worktree: $DUAL_CONTEXT_PATH"
+echo "Project: $DUAL_PROJECT_ROOT"
+```
+
+### Hook Execution Rules
+
+- Scripts must be executable (`chmod +x`)
+- Scripts run in sequence (not parallel)
+- Non-zero exit code halts execution and fails the operation
+- stdout/stderr are streamed to the user in real-time
+- Scripts run with the worktree directory as working directory (except `postWorktreeDelete`)
+- Hook failure during `dual create` leaves the worktree in place but may be partially configured
+- Hook failure during `dual delete` halts deletion - worktree and registry entry remain
+
+### Hook Examples
+
+#### Example 1: Port Assignment
 
 ```bash
-dual context delete <name> [--force]
-```
+#!/bin/bash
+# .dual/hooks/setup-environment.sh
 
-#### Arguments
+set -e
 
-- `<name>` - Name of the context to delete
+echo "Setting up environment for: $DUAL_CONTEXT_NAME"
 
-#### Options
+# Calculate port based on context name hash
+BASE_PORT=4000
+CONTEXT_HASH=$(echo -n "$DUAL_CONTEXT_NAME" | md5sum | cut -c1-4)
+PORT=$((BASE_PORT + 0x$CONTEXT_HASH % 1000))
 
-- `--force` or `-f` - Skip confirmation prompt
-
-#### Examples
-
-##### Interactive Deletion
-
-```bash
-dual context delete feature-old
-```
-
-Output:
-```
-About to delete context: feature-old
-  Project: /Users/dev/Code/myproject
-  Base Port: 4300
-  Environment Overrides: 5
-
-Are you sure you want to delete this context? (y/N): y
-[dual] Deleted context "feature-old"
-```
-
-##### Force Deletion (No Confirmation)
-
-```bash
-dual context delete feature-old --force
-```
-
-Output:
-```
-About to delete context: feature-old
-  Project: /Users/dev/Code/myproject
-  Base Port: 4300
-[dual] Deleted context "feature-old"
-```
-
-#### Behavior
-
-**Current Context Protection**: Cannot delete the current context. Switch to a different branch or context first.
-
-**Environment Overrides**: Deleting a context also removes all environment variable overrides associated with it.
-
-**Confirmation**: By default, shows context details and prompts for confirmation. Use `--force` to skip.
-
-**Port Reclamation**: The base port is freed up and can be reused by future contexts.
-
-#### Safety
-
-This operation is permanent and cannot be undone. Make sure you're deleting the correct context.
-
-#### Error Cases
-
-```bash
-# Attempting to delete current context
-dual context delete main
-```
-
-Output:
-```
-Error: cannot delete current context "main"
-Hint: Switch to a different branch or context first
-```
-
----
-
-## Environment Management
-
-The environment management system allows you to set context-specific and service-specific environment variable overrides. Variables are layered in priority order:
-
-1. **Runtime values** (highest priority) - PORT injected by dual
-2. **Context-specific overrides** - Set via `dual env set`
-3. **Base environment file** (lowest priority) - Loaded from `dual.config.yml`
-
-### dual env / dual env show
-
-Display environment variable summary and overrides for the current context.
-
-#### Syntax
-
-```bash
-dual env [show] [--values] [--base-only] [--overrides-only] [--json] [--service <name>]
-```
-
-#### Options
-
-- `--values` - Show actual variable values (by default, values are truncated for security)
-- `--base-only` - Show only variables from base environment file
-- `--overrides-only` - Show only context-specific overrides
-- `--json` - Output in JSON format
-- `--service <name>` - Show overrides for specific service
-
-#### Examples
-
-##### Basic Summary
-
-```bash
-dual env
-```
-
-Output:
-```
-Base:      .env (12 vars)
-Overrides: 3 vars
-Effective: 15 vars total
-
-Overrides for context 'main':
-  DATABASE_URL=mysql://localhost/mydb_main...
-  DEBUG=true
-  LOG_LEVEL=debug
-```
-
-##### Show All Values
-
-```bash
-dual env --values
-```
-
-Output:
-```
-Base:      .env (12 vars)
-Overrides: 3 vars
-Effective: 15 vars total
-
-Overrides for context 'main':
-  DATABASE_URL=mysql://localhost/mydb_main
-  DEBUG=true
-  LOG_LEVEL=debug
-```
-
-##### Show Only Base Variables
-
-```bash
-dual env --base-only
-```
-
-Output:
-```
-Base environment (.env):
-NODE_ENV
-API_KEY
-DATABASE_HOST
-DATABASE_PORT
-REDIS_URL
-...
-```
-
-##### Show Only Overrides
-
-```bash
-dual env --overrides-only --values
-```
-
-Output:
-```
-Overrides for context 'main':
-DATABASE_URL=mysql://localhost/mydb_main
-DEBUG=true
-LOG_LEVEL=debug
-```
-
-##### Show Service-Specific Overrides
-
-```bash
-dual env --service api --values
-```
-
-Output:
-```
-Base:      .env (12 vars)
-Overrides: 5 vars (including 2 service-specific for 'api')
-Effective: 17 vars total
-
-Overrides for context 'main':
-  DATABASE_URL=mysql://localhost/mydb_main (global)
-  DEBUG=true (global)
-  LOG_LEVEL=debug (global)
-  API_TIMEOUT=30s (api)
-  API_MAX_CONNECTIONS=100 (api)
-```
-
-##### JSON Output
-
-```bash
-dual env --json
-```
-
-Output:
-```json
-{
-  "context": "main",
-  "baseFile": ".env",
-  "stats": {
-    "baseVars": 12,
-    "overrideVars": 3,
-    "totalVars": 15
-  },
-  "base": {
-    "NODE_ENV": "development",
-    "API_KEY": "...",
-    "DATABASE_HOST": "localhost"
-  },
-  "overrides": {
-    "DATABASE_URL": "mysql://localhost/mydb_main",
-    "DEBUG": "true",
-    "LOG_LEVEL": "debug"
-  }
-}
-```
-
----
-
-### dual env set
-
-Set a context-specific environment variable override.
-
-#### Syntax
-
-```bash
-dual env set <key> <value> [--service <name>]
-```
-
-#### Arguments
-
-- `<key>` - Environment variable name
-- `<value>` - Environment variable value
-
-#### Options
-
-- `--service <name>` - Set override only for a specific service (instead of globally for the context)
-
-#### Examples
-
-##### Set Global Override
-
-```bash
-dual env set DATABASE_URL "mysql://localhost/mydb_main"
-```
-
-Output:
-```
-[dual] Warning: Overriding variable "DATABASE_URL" from base environment
-Set DATABASE_URL=mysql://localhost/mydb_main for context 'main' (global)
-Context 'main' now has 3 override(s) (3 global, 0 service-specific)
-```
-
-##### Set Service-Specific Override
-
-```bash
-dual env set --service api API_TIMEOUT "30s"
-```
-
-Output:
-```
-Set API_TIMEOUT=30s for service 'api' in context 'main'
-Context 'main' now has 4 override(s) (3 global, 1 service-specific)
-```
-
-##### Override Multiple Variables
-
-```bash
-dual env set DEBUG "true"
-dual env set LOG_LEVEL "debug"
-dual env set CACHE_TTL "3600"
-```
-
-##### Service-Specific Database URLs
-
-```bash
-# Different database for each service
-dual env set --service api DATABASE_URL "mysql://localhost/api_db"
-dual env set --service web DATABASE_URL "mysql://localhost/web_db"
-dual env set --service worker DATABASE_URL "mysql://localhost/worker_db"
-```
-
-#### Behavior
-
-**Override Priority**: Service-specific overrides take precedence over global overrides, which take precedence over base environment file.
-
-**Warning on Conflict**: Shows a warning if overriding a variable from the base environment file.
-
-**Multiple Contexts**: Each context maintains its own set of overrides. Switching contexts automatically applies the correct overrides.
-
-#### Use Cases
-
-- **Context-Specific Databases**: Use different database names for each branch/context
-- **Debug Flags**: Enable debug mode only in development contexts
-- **API Endpoints**: Point to different backend URLs per context
-- **Feature Flags**: Enable experimental features in specific contexts
-- **Service Isolation**: Give each service its own configuration overrides
-
----
-
-### dual env unset
-
-Remove a context-specific environment variable override.
-
-#### Syntax
-
-```bash
-dual env unset <key> [--service <name>]
-```
-
-#### Arguments
-
-- `<key>` - Environment variable name to unset
-
-#### Options
-
-- `--service <name>` - Unset service-specific override (instead of global)
-
-#### Examples
-
-##### Unset Global Override
-
-```bash
-dual env unset DATABASE_URL
-```
-
-Output:
-```
-Removed override for DATABASE_URL in context 'main'
-Fallback to base value: DATABASE_URL=mysql://localhost/defaultdb
-```
-
-##### Unset Service-Specific Override
-
-```bash
-dual env unset --service api API_TIMEOUT
-```
-
-Output:
-```
-Removed override for API_TIMEOUT in service 'api' for context 'main'
-```
-
-##### Unset Multiple Variables
-
-```bash
-dual env unset DEBUG
-dual env unset LOG_LEVEL
-dual env unset CACHE_TTL
-```
-
-#### Behavior
-
-**Fallback to Base**: If the variable exists in the base environment file, shows the base value that will be used.
-
-**Error on Missing**: Returns an error if the override doesn't exist.
-
-**Service vs Global**: Must specify `--service` to unset service-specific overrides.
-
----
-
-### dual env export
-
-Export the complete merged environment to stdout.
-
-#### Syntax
-
-```bash
-dual env export [--format <format>] [--service <name>]
-```
-
-#### Options
-
-- `--format <format>` - Output format: `dotenv` (default), `json`, or `shell`
-- `--service <name>` - Export environment for specific service (includes service-specific overrides)
-
-#### Examples
-
-##### Export as Dotenv Format (Default)
-
-```bash
-dual env export
-```
-
-Output:
-```
+# Write to .env file
+cat > "$DUAL_CONTEXT_PATH/.env.local" <<EOF
+PORT=$PORT
+DATABASE_URL=postgresql://localhost/myapp_${DUAL_CONTEXT_NAME}
 NODE_ENV=development
-API_KEY=abc123
-DATABASE_URL=mysql://localhost/mydb_main
-DEBUG=true
-LOG_LEVEL=debug
-PORT=0
-...
+EOF
+
+echo "Assigned port: $PORT"
 ```
 
-##### Export as JSON
+#### Example 2: Database Branch Setup (PlanetScale)
 
 ```bash
-dual env export --format=json
+#!/bin/bash
+# .dual/hooks/setup-database.sh
+
+set -e
+
+echo "Creating database branch for: $DUAL_CONTEXT_NAME"
+
+# Create PlanetScale branch
+pscale branch create myapp "$DUAL_CONTEXT_NAME" --from main
+
+# Get connection string
+CONNECTION_URL=$(pscale connect myapp "$DUAL_CONTEXT_NAME" --format url)
+
+# Update .env file
+echo "DATABASE_URL=$CONNECTION_URL" >> "$DUAL_CONTEXT_PATH/.env.local"
+
+echo "Database branch created"
 ```
 
-Output:
-```json
-{
-  "NODE_ENV": "development",
-  "API_KEY": "abc123",
-  "DATABASE_URL": "mysql://localhost/mydb_main",
-  "DEBUG": "true",
-  "LOG_LEVEL": "debug",
-  "PORT": "0"
-}
-```
-
-##### Export as Shell Format
+#### Example 3: Dependency Installation
 
 ```bash
-dual env export --format=shell
+#!/bin/bash
+# .dual/hooks/install-dependencies.sh
+
+set -e
+
+echo "Installing dependencies for: $DUAL_CONTEXT_NAME"
+
+cd "$DUAL_CONTEXT_PATH"
+
+# Install npm dependencies
+if [ -f "package.json" ]; then
+  pnpm install
+fi
+
+# Install Python dependencies
+if [ -f "requirements.txt" ]; then
+  pip install -r requirements.txt
+fi
+
+echo "Dependencies installed"
 ```
 
-Output:
-```bash
-export NODE_ENV='development'
-export API_KEY='abc123'
-export DATABASE_URL='mysql://localhost/mydb_main'
-export DEBUG='true'
-export LOG_LEVEL='debug'
-export PORT='0'
-```
-
-##### Export Service-Specific Environment
-
-```bash
-dual env export --service api --format=dotenv
-```
-
-Output:
-```
-NODE_ENV=development
-API_KEY=abc123
-DATABASE_URL=mysql://localhost/api_db
-API_TIMEOUT=30s
-API_MAX_CONNECTIONS=100
-DEBUG=true
-PORT=0
-...
-```
-
-##### Save to File
+#### Example 4: Pre-Delete Backup
 
 ```bash
-dual env export > .env.local
-dual env export --format=json > env.json
-dual env export --format=shell > env.sh
+#!/bin/bash
+# .dual/hooks/backup-data.sh
+
+set -e
+
+echo "Backing up data for: $DUAL_CONTEXT_NAME"
+
+# Create backup directory
+mkdir -p ~/backups
+
+# Backup database
+pg_dump myapp_${DUAL_CONTEXT_NAME} > ~/backups/${DUAL_CONTEXT_NAME}_$(date +%Y%m%d).sql
+
+echo "Data backed up to ~/backups/${DUAL_CONTEXT_NAME}_$(date +%Y%m%d).sql"
 ```
 
-#### Use Cases
-
-- **CI/CD Integration**: Export environment for deployment pipelines
-- **Docker Builds**: Generate env files for container builds
-- **Debugging**: Inspect complete merged environment
-- **Team Sharing**: Share environment configuration (be careful with secrets!)
-- **Shell Sourcing**: `source <(dual env export --format=shell)`
-
-#### Notes
-
-- PORT is included but set to 0 (actual port is determined at runtime)
-- All layers are merged: base → overrides → runtime
-- Values with spaces or special characters are properly quoted
-
----
-
-### dual env check
-
-Validate environment configuration for the current context.
-
-#### Syntax
+#### Example 5: Database Cleanup
 
 ```bash
-dual env check
+#!/bin/bash
+# .dual/hooks/cleanup-database.sh
+
+set -e
+
+echo "Cleaning up database for: $DUAL_CONTEXT_NAME"
+
+# Drop local database
+dropdb myapp_${DUAL_CONTEXT_NAME} --if-exists
+
+# Delete PlanetScale branch
+pscale branch delete myapp "$DUAL_CONTEXT_NAME" --force
+
+echo "Database branch deleted"
 ```
 
-#### Examples
-
-##### Valid Configuration
+#### Example 6: Team Notification
 
 ```bash
-dual env check
+#!/bin/bash
+# .dual/hooks/notify-team.sh
+
+set -e
+
+echo "Notifying team about: $DUAL_CONTEXT_NAME"
+
+# Send Slack notification
+curl -X POST https://hooks.slack.com/services/YOUR/WEBHOOK/URL \
+  -H 'Content-Type: application/json' \
+  -d "{\"text\":\"Worktree deleted: $DUAL_CONTEXT_NAME\"}"
+
+echo "Team notified"
 ```
 
-Output:
-```
-✓ Base environment file exists: .env (12 vars)
-✓ Context detected: main
-✓ Context has 3 environment override(s) (3 global, 0 service-specific)
-
-✓ Environment configuration is valid
-```
-
-Exit code: `0`
-
-##### Configuration Issues
+#### Example 7: Multi-Service Port Assignment
 
 ```bash
-dual env check
+#!/bin/bash
+# .dual/hooks/setup-environment.sh
+
+set -e
+
+echo "Setting up multi-service environment for: $DUAL_CONTEXT_NAME"
+
+# Calculate base port from context hash
+BASE_PORT=4000
+CONTEXT_HASH=$(echo -n "$DUAL_CONTEXT_NAME" | md5sum | cut -c1-4)
+CONTEXT_BASE=$((BASE_PORT + 0x$CONTEXT_HASH % 100 * 10))
+
+# Assign ports to each service
+WEB_PORT=$((CONTEXT_BASE + 1))
+API_PORT=$((CONTEXT_BASE + 2))
+WORKER_PORT=$((CONTEXT_BASE + 3))
+
+# Write web service env
+cat > "$DUAL_CONTEXT_PATH/apps/web/.env.local" <<EOF
+PORT=$WEB_PORT
+API_URL=http://localhost:$API_PORT
+EOF
+
+# Write api service env
+cat > "$DUAL_CONTEXT_PATH/apps/api/.env.local" <<EOF
+PORT=$API_PORT
+DATABASE_URL=postgresql://localhost/myapp_${DUAL_CONTEXT_NAME}
+EOF
+
+# Write worker service env
+cat > "$DUAL_CONTEXT_PATH/apps/worker/.env.local" <<EOF
+PORT=$WORKER_PORT
+API_URL=http://localhost:$API_PORT
+EOF
+
+echo "Assigned ports:"
+echo "  web:    $WEB_PORT"
+echo "  api:    $API_PORT"
+echo "  worker: $WORKER_PORT"
 ```
 
-Output:
-```
-Error: Base environment file (.env) is not readable: file not found
-✓ Context detected: main
-✓ Context has 3 environment override(s) (3 global, 0 service-specific)
-
-❌ Environment configuration has issues
-```
-
-Exit code: `1`
-
-##### No Base File Configured
-
-```bash
-dual env check
-```
-
-Output:
-```
-ℹ No base environment file configured
-✓ Context detected: main
-ℹ Context has no environment overrides
-
-✓ Environment configuration is valid
-```
-
-Exit code: `0`
-
-#### What It Checks
-
-- **Base Environment File**: Exists and is readable (if configured)
-- **Context Detection**: Current context can be detected
-- **Registry**: Context exists in registry
-- **Override Counts**: Shows global and service-specific override counts
-
-#### Use Cases
-
-- **Pre-deployment Checks**: Validate environment before deploying
-- **CI/CD Pipelines**: Ensure environment is properly configured
-- **Troubleshooting**: Diagnose environment configuration issues
-- **Team Onboarding**: Verify new developer setup
-
----
-
-### dual env diff
-
-Compare environment variables between two contexts.
-
-#### Syntax
-
-```bash
-dual env diff <context1> <context2>
-```
-
-#### Arguments
-
-- `<context1>` - First context name
-- `<context2>` - Second context name to compare against
-
-#### Examples
-
-##### Compare Two Contexts
-
-```bash
-dual env diff main feature-auth
-```
-
-Output:
-```
-Comparing environments: main → feature-auth
-
-Changed:
-  DATABASE_URL: mysql://localhost/mydb_main → mysql://localhost/mydb_auth
-  LOG_LEVEL: info → debug
-
-Added:
-  AUTH_DEBUG=true
-  JWT_SECRET=test123
-
-Removed:
-  LEGACY_MODE=true
-```
-
-##### No Differences
-
-```bash
-dual env diff main staging
-```
-
-Output:
-```
-Comparing environments: main → staging
-
-No differences found
-```
-
-##### Typical Use Case
-
-```bash
-# Before merging feature branch, check environment differences
-dual env diff main feature-new-api
-```
-
-#### Behavior
-
-- **Changed**: Variables with different values between contexts
-- **Added**: Variables only in context2
-- **Removed**: Variables only in context1
-- **PORT Excluded**: PORT is always excluded from comparison
-- **Complete Merge**: Compares fully merged environments (base + overrides)
-
-#### Use Cases
-
-- **Pre-merge Review**: Check environment differences before merging branches
-- **Configuration Audit**: Verify environment consistency across contexts
-- **Debugging**: Identify why behavior differs between contexts
-- **Documentation**: Document environment differences for deployment
-
----
-
-## Port Queries
-
-### dual port
-
-Get the port number for a service in the current context.
-
-#### Syntax
-
-```bash
-dual port [service] [--verbose]
-```
-
-#### Arguments
-
-- `[service]` - Optional. Service name. If omitted, auto-detects from current directory
-
-#### Options
-
-- `--verbose` or `-v` - Show context and service information along with port
-
-#### Examples
-
-##### Auto-Detect Service
-
-```bash
-# From within service directory
-cd ~/Code/myproject/apps/web
-dual port
-```
-
-Output:
-```
-4101
-```
-
-##### Specific Service
-
-```bash
-# Query any service by name
-dual port api
-```
-
-Output:
-```
-4102
-```
-
-##### Verbose Output
-
-```bash
-dual port web --verbose
-```
-
-Output:
-```
-[dual] Context: main | Service: web | Port: 4101
-```
-
-#### Use Cases
-
-##### Integration with Scripts
-
-```bash
-# Use in shell scripts
-PORT=$(dual port web)
-echo "Web service running on port $PORT"
-
-# Use in other commands
-curl http://localhost:$(dual port api)/health
-```
-
-##### Environment Files
-
-```bash
-# Write to env file
-echo "API_URL=http://localhost:$(dual port api)" >> .env.local
-```
-
----
-
-### dual ports
-
-List all service ports for the current context.
-
-#### Syntax
-
-```bash
-dual ports [--json]
-```
-
-#### Options
-
-- `--json` - Output as JSON
-
-#### Examples
-
-##### Table Format
-
-```bash
-dual ports
-```
-
-Output:
-```
-Context: main (base: 4100)
-api:    4102
-web:    4101
-worker: 4103
-```
-
-##### JSON Format
-
-```bash
-dual ports --json
-```
-
-Output:
-```json
-{
-  "context": "main",
-  "basePort": 4100,
-  "ports": {
-    "api": 4102,
-    "web": 4101,
-    "worker": 4103
-  }
-}
-```
-
-#### Use Cases
-
-##### Quick Reference
-
-```bash
-# See all ports at a glance
-dual ports
-```
-
-##### Documentation Generation
-
-```bash
-# Generate port documentation
-dual ports --json | jq -r '.ports | to_entries[] | "- \(.key): \(.value)"' >> PORTS.md
-```
+### Hook Best Practices
+
+1. **Always use `set -e`**: Exit immediately on errors
+2. **Provide feedback**: Echo progress messages for user visibility
+3. **Check prerequisites**: Verify required tools are installed
+4. **Handle failures gracefully**: Clean up partial state on error
+5. **Use environment variables**: Access `DUAL_*` variables for context
+6. **Keep scripts focused**: One script per concern (database, env, deps)
+7. **Make scripts idempotent**: Safe to run multiple times
+8. **Add comments**: Document what each section does
 
 ---
 
 ## Utility Commands
 
-### dual open
+### dual doctor
 
-Open a service URL in the default web browser.
-
-#### Syntax
-
-```bash
-dual open [service]
-```
-
-#### Arguments
-
-- `[service]` - Optional. Service name. If omitted, auto-detects from current directory
-
-#### Examples
-
-##### Auto-Detect Service
-
-```bash
-# From within service directory
-cd ~/Code/myproject/apps/web
-dual open
-```
-
-Output:
-```
-[dual] Opening http://localhost:4101
-```
-
-##### Specific Service
-
-```bash
-# Open any service
-dual open api
-```
-
-Output:
-```
-[dual] Opening http://localhost:4102
-```
-
-#### Platform Support
-
-- macOS: Uses `open`
-- Linux: Uses `xdg-open` or `sensible-browser`
-- Windows: Uses `rundll32`
-
----
-
-### dual sync
-
-Write PORT values to service env files.
+Diagnose configuration and registry health.
 
 #### Syntax
 
 ```bash
-dual sync
+dual doctor
 ```
-
-#### Description
-
-The `sync` command is a fallback mechanism for environments where the command wrapper cannot be used. It reads the current context, calculates ports for all services, and writes `PORT=<value>` to each service's configured env file.
 
 #### Examples
 
-##### Basic Sync
+##### Healthy Configuration
 
 ```bash
-dual sync
+dual doctor
 ```
 
 Output:
 ```
-[dual] Updated web → PORT=4101 in .vercel/.env.development.local
-[dual] Updated api → PORT=4102 in .env
-[dual] Skipped worker (no envFile configured)
+Checking dual configuration...
 
-[dual] Sync complete: 2 updated, 1 skipped
+✓ Config file found: /Users/dev/Code/myproject/dual.config.yml
+✓ Config version: 1
+✓ Services: 3 configured
+  - api (apps/api)
+  - web (apps/web)
+  - worker (apps/worker)
+✓ Worktrees configuration: ../worktrees
+✓ Hooks configuration: 6 hooks configured
+✓ Registry file found: /Users/dev/Code/myproject/.dual/.local/registry.json
+✓ Registry is readable and valid
+✓ Contexts: 3 registered
+  - main (main repository)
+  - feature-auth (worktree)
+  - feature-api (worktree)
+
+All checks passed!
 ```
 
-##### Before CI/CD
+##### Configuration Issues
 
 ```bash
-# Sync ports before running tests in CI
-dual sync
-npm test  # Will read PORT from env files
+dual doctor
 ```
 
-#### Behavior
+Output:
+```
+Checking dual configuration...
 
-- Reads existing env file if present
-- Updates `PORT=` line if it exists
-- Adds `PORT=` line if it doesn't exist
-- Preserves all other environment variables
-- Creates env file and directories if they don't exist
-- Atomic writes (uses temporary file + rename)
-- Skips services without `envFile` configured
+✓ Config file found: /Users/dev/Code/myproject/dual.config.yml
+✓ Config version: 1
+✓ Services: 2 configured
+  - web (apps/web)
+  - api (apps/api)
+✗ Worktrees configuration: not configured
+  Hint: Add worktrees section to use 'dual create'
+✗ Hook script not found: setup-database.sh
+  Hint: Create .dual/hooks/setup-database.sh and make it executable
+✗ Hook script not executable: cleanup-database.sh
+  Hint: Run 'chmod +x .dual/hooks/cleanup-database.sh'
+✓ Registry file found: /Users/dev/Code/myproject/.dual/.local/registry.json
+✗ Registry corruption: context "feature-old" references non-existent worktree
+  Hint: Run 'dual context list' and manually edit registry if needed
+
+Issues found. Please resolve the issues above.
+```
+
+#### What It Checks
+
+- **Config file**: Exists and is readable
+- **Config version**: Supported version (currently 1)
+- **Services**: Valid service definitions
+- **Worktrees**: Configuration exists (if using dual create/delete)
+- **Hooks**: Scripts exist and are executable
+- **Registry**: File exists, is readable, and is valid JSON
+- **Contexts**: Registered contexts are valid
 
 #### Use Cases
 
-1. **CI/CD Environments**: When dual isn't installed
-2. **Editor Integration**: When tools need PORT in env files
-3. **Teammate Setup**: Quickly sync ports without wrapper
-4. **Vercel Compatibility**: Update `.vercel/.env.development.local` for local dev
+- **Troubleshooting**: Diagnose configuration issues
+- **Setup Verification**: Ensure everything is configured correctly
+- **Pre-deployment Checks**: Validate before committing config changes
+- **Team Onboarding**: Help new developers verify their setup
 
-#### Notes
+---
 
-- This is NOT the primary way to use dual
-- Prefer the command wrapper (`dual <command>`) when possible
-- Synced values can become stale if context changes
-- Vercel's `vercel pull` may overwrite synced values
+## Configuration Reference
+
+The `dual.config.yml` file defines your project's configuration.
+
+### Complete Schema
+
+```yaml
+version: 1
+
+# Required: Service definitions
+services:
+  <service-name>:
+    path: <relative-path>      # Required: path from project root
+    envFile: <relative-path>   # Optional: env file reference
+
+# Optional: Worktree management configuration
+worktrees:
+  path: <relative-path>        # Where to create worktrees
+  naming: "{branch}"           # Directory naming pattern
+
+# Optional: Lifecycle hooks
+hooks:
+  postWorktreeCreate:          # After creating worktree
+    - script1.sh
+    - script2.sh
+  preWorktreeDelete:           # Before deleting worktree (files exist)
+    - script3.sh
+  postWorktreeDelete:          # After deleting worktree (files gone)
+    - script4.sh
+```
+
+### Example Configuration
+
+```yaml
+version: 1
+
+services:
+  web:
+    path: ./apps/web
+    envFile: .env.local
+  api:
+    path: ./apps/api
+    envFile: .env
+  worker:
+    path: ./apps/worker
+    envFile: .env.local
+
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
+
+hooks:
+  postWorktreeCreate:
+    - setup-database.sh
+    - setup-environment.sh
+    - install-dependencies.sh
+  preWorktreeDelete:
+    - backup-data.sh
+    - cleanup-database.sh
+  postWorktreeDelete:
+    - notify-team.sh
+```
+
+### Configuration Notes
+
+- **version**: Must be `1` (only supported version)
+- **services**: At least one service is required
+- **worktrees.path**: Relative to project root (e.g., `../worktrees` creates sibling directory)
+- **worktrees.naming**: Currently only supports `{branch}` placeholder
+- **hooks**: All script paths are relative to `$PROJECT_ROOT/.dual/hooks/`
+- **Hook scripts**: Must be executable (`chmod +x`)
+
+### Worktree Naming Patterns
+
+The `worktrees.naming` pattern controls how worktree directories are named:
+
+**Default**: `{branch}`
+```yaml
+worktrees:
+  naming: "{branch}"
+```
+Branch `feature/auth` → directory `feature-auth`
+
+**Custom prefix**: `wt-{branch}`
+```yaml
+worktrees:
+  naming: "wt-{branch}"
+```
+Branch `feature/auth` → directory `wt-feature-auth`
+
+**Note**: Slashes in branch names are automatically replaced with dashes.
+
+---
+
+## Project-Local Registry
+
+The registry tracks all contexts (main repository and worktrees) for a project.
+
+### Registry Location
+
+**v0.3.0**: `$PROJECT_ROOT/.dual/.local/registry.json` (project-local)
+
+**Important changes from v0.2.x**:
+- No longer stored in `~/.dual/registry.json` (global)
+- Each project has its own registry
+- All worktrees of a repository share the parent repo's registry
+- Should be added to `.gitignore` (contains local paths)
+
+### Registry Structure
+
+```json
+{
+  "projects": {
+    "/Users/dev/Code/myproject": {
+      "contexts": {
+        "main": {
+          "path": "",
+          "created": "2025-10-01T10:00:00Z"
+        },
+        "feature-auth": {
+          "path": "/Users/dev/Code/myproject-wt/feature-auth",
+          "created": "2025-10-10T14:30:00Z"
+        }
+      }
+    }
+  }
+}
+```
+
+### Registry Operations
+
+**Automatic management**: The registry is automatically updated by `dual create` and `dual delete`.
+
+**Manual editing**: Generally not recommended, but you can edit the registry file if needed (be careful!).
+
+**File locking**: The registry uses file locking to prevent corruption from concurrent dual operations.
+
+**Auto-recovery**: If the registry is corrupted, dual will create a new empty registry.
+
+### Add to .gitignore
+
+```bash
+echo "/.dual/.local/" >> .gitignore
+```
+
+The registry contains local paths that shouldn't be committed.
 
 ---
 
 ## Debug & Verbose Options
 
-All `dual` commands support verbose and debug output flags for troubleshooting and development.
+All `dual` commands support verbose and debug output flags for troubleshooting.
 
 ### Flags
 
@@ -1551,18 +1145,21 @@ All `dual` commands support verbose and debug output flags for troubleshooting a
 Enable verbose output showing detailed operation steps.
 
 ```bash
-dual --verbose pnpm dev
-dual -v port api
+dual --verbose create feature-x
+dual -v context list
 ```
 
 Output example:
 ```
-Loading configuration...
-Detecting context...
-Detecting service...
-Calculating port...
-[dual] Context: main | Service: web | Port: 4101
-Executing command: pnpm dev
+[dual] Loading configuration from: /Users/dev/Code/myproject/dual.config.yml
+[dual] Project root: /Users/dev/Code/myproject
+[dual] Worktrees path: /Users/dev/Code/myproject-wt
+[dual] Creating worktree for: feature-x
+[dual] Target path: /Users/dev/Code/myproject-wt/feature-x
+[dual] Executing git worktree add...
+[dual] Registering context in registry...
+[dual] Executing postWorktreeCreate hooks...
+[dual] Successfully created worktree: feature-x
 ```
 
 #### --debug or -d
@@ -1570,21 +1167,30 @@ Executing command: pnpm dev
 Enable debug output showing maximum detail including internal state. Implies `--verbose`.
 
 ```bash
-dual --debug pnpm dev
+dual --debug create feature-x
 ```
 
 Output example:
 ```
-Loading configuration...
-Config: /Users/dev/Code/myproject
-Services: 3 ([api web worker])
-Detecting context...
-Loading registry...
-Calculating port...
-Environment: 15 variables total
-[dual] Context: main | Service: web | Port: 4101
-[dual] Env: base=12 overrides=3 total=15
-Executing command: pnpm dev
+[dual] Debug mode enabled
+[dual] Loading configuration from: /Users/dev/Code/myproject/dual.config.yml
+[dual] Config loaded successfully
+[dual] Services: map[api:{apps/api .env} web:{apps/web .env.local}]
+[dual] Worktrees config: {../worktrees {branch}}
+[dual] Hooks config: map[postWorktreeCreate:[setup-database.sh setup-environment.sh]]
+[dual] Project root: /Users/dev/Code/myproject
+[dual] Loading registry from: /Users/dev/Code/myproject/.dual/.local/registry.json
+[dual] Registry loaded: 2 contexts
+[dual] Creating worktree for: feature-x
+[dual] Naming pattern: {branch}
+[dual] Target directory: feature-x
+[dual] Target path: /Users/dev/Code/myproject-wt/feature-x
+[dual] Executing: git worktree add /Users/dev/Code/myproject-wt/feature-x -b feature-x
+[dual] Git command succeeded
+[dual] Updating registry...
+[dual] Registry updated
+[dual] Executing 2 postWorktreeCreate hooks...
+[dual] Successfully created worktree: feature-x
 ```
 
 ### Environment Variable
@@ -1593,7 +1199,7 @@ You can also enable debug mode via environment variable:
 
 ```bash
 export DUAL_DEBUG=1
-dual pnpm dev
+dual create feature-x
 ```
 
 This is useful for:
@@ -1603,44 +1209,31 @@ This is useful for:
 
 ### Examples
 
-#### Debug Port Calculation
+#### Debug Worktree Creation
 
 ```bash
-dual --debug port api
+dual --debug create feature-x
 ```
 
-#### Verbose Service List
+#### Verbose Context List
 
 ```bash
-dual --verbose service list
+dual --verbose context list
 ```
 
-#### Debug Context Creation
+#### Debug Doctor
 
 ```bash
-dual --debug context create feature-test
-```
-
-#### Debug Environment Loading
-
-```bash
-dual --debug env show
+dual --debug doctor
 ```
 
 ### Use Cases
 
-- **Troubleshooting**: Diagnose configuration or detection issues
+- **Troubleshooting**: Diagnose configuration or execution issues
 - **Development**: Debug dual itself during development
 - **CI/CD**: Enable verbose output in pipelines for better logs
 - **Learning**: Understand how dual makes decisions
-- **Performance**: Identify slow operations
-
-### Tips
-
-- Use `--verbose` for general troubleshooting
-- Use `--debug` when reporting bugs or developing dual
-- Combine with other flags: `dual --debug --service api pnpm dev`
-- Debug output goes to stderr, so commands still work: `PORT=$(dual --debug port api)`
+- **Bug Reports**: Include debug output when reporting issues
 
 ---
 
@@ -1658,194 +1251,197 @@ cd ~/Code/myproject
 dual init
 
 # 3. Add services
-dual service add web --path apps/web --env-file .vercel/.env.development.local
+dual service add web --path apps/web --env-file .env.local
 dual service add api --path apps/api --env-file .env
 
-# 4. Create main context
-dual context create main --base-port 4100
+# 4. Configure worktrees
+# Edit dual.config.yml to add:
+#   worktrees:
+#     path: ../worktrees
+#     naming: "{branch}"
 
-# 5. Run your app
-cd apps/web
-dual pnpm dev
+# 5. Create hook scripts
+mkdir -p .dual/hooks
+cat > .dual/hooks/setup-environment.sh <<'EOF'
+#!/bin/bash
+set -e
+echo "Setting up environment for: $DUAL_CONTEXT_NAME"
+# Add your setup logic here
+EOF
+chmod +x .dual/hooks/setup-environment.sh
+
+# 6. Verify setup
+dual doctor
+
+# 7. Add registry to .gitignore
+echo "/.dual/.local/" >> .gitignore
 ```
 
 ### Creating a Feature Branch
 
 ```bash
 # Using worktrees (recommended)
-git worktree add ~/Code/myproject-wt/feature-x -b feature-x
-cd ~/Code/myproject-wt/feature-x
-dual context create feature-x
+dual create feature-auth
 
-# Run both main and feature simultaneously
-# Terminal 1: main branch
-cd ~/Code/myproject/apps/web && dual pnpm dev
+# The worktree is created with:
+# - Git worktree at configured location
+# - Registered context
+# - Lifecycle hooks executed (setup-environment.sh, install-dependencies.sh, etc.)
 
-# Terminal 2: feature branch
-cd ~/Code/myproject-wt/feature-x/apps/web && dual pnpm dev
+# Switch to the worktree
+cd ../worktrees/feature-auth
+
+# Start working
+# Your hooks have already configured everything!
 ```
 
-### Querying Ports
+### Working on Multiple Features Simultaneously
 
 ```bash
-# Check current service port
-dual port
+# Terminal 1: Main branch
+cd ~/Code/myproject/apps/web
+npm run dev  # Runs on port from main context
 
-# Check specific service
-dual port api
+# Terminal 2: Feature 1
+cd ~/Code/myproject-wt/feature-auth/apps/web
+npm run dev  # Runs on different port (assigned by hook)
 
-# See all ports
-dual ports
+# Terminal 3: Feature 2
+cd ~/Code/myproject-wt/feature-api/apps/web
+npm run dev  # Runs on another different port (assigned by hook)
 
-# Open in browser
-dual open web
+# All three run simultaneously with isolated environments!
 ```
 
-### Switching Contexts
+### Cleaning Up Old Worktrees
 
 ```bash
-# Context is auto-detected from git branch
-git checkout main
-dual port  # Uses main's base port
+# List all contexts
+dual context list
 
-git checkout feature-x
-dual port  # Uses feature-x's base port
+# Delete old worktrees
+dual delete feature-old
+
+# The deletion process:
+# 1. Runs preWorktreeDelete hooks (backup data, cleanup databases)
+# 2. Removes git worktree
+# 3. Removes from registry
+# 4. Runs postWorktreeDelete hooks (notify team, etc.)
 ```
 
-### Manual Context Override
+### Implementing Custom Port Assignment
+
+Create a hook script for port assignment:
 
 ```bash
-# Create .dual-context file to override git detection
-echo "staging" > .dual-context
-dual context  # Shows "staging" context
+#!/bin/bash
+# .dual/hooks/setup-environment.sh
+set -e
+
+echo "Setting up environment for: $DUAL_CONTEXT_NAME"
+
+# Calculate port based on context name hash
+BASE_PORT=4000
+CONTEXT_HASH=$(echo -n "$DUAL_CONTEXT_NAME" | md5sum | cut -c1-4)
+PORT=$((BASE_PORT + 0x$CONTEXT_HASH % 1000))
+
+# Write to each service's env file
+cat > "$DUAL_CONTEXT_PATH/apps/web/.env.local" <<EOF
+PORT=$PORT
+API_URL=http://localhost:$((PORT + 1))
+EOF
+
+cat > "$DUAL_CONTEXT_PATH/apps/api/.env.local" <<EOF
+PORT=$((PORT + 1))
+DATABASE_URL=postgresql://localhost/myapp_${DUAL_CONTEXT_NAME}
+EOF
+
+echo "Assigned ports:"
+echo "  web: $PORT"
+echo "  api: $((PORT + 1))"
 ```
 
-### Cleaning Up
+Make it executable:
+```bash
+chmod +x .dual/hooks/setup-environment.sh
+```
+
+Configure in `dual.config.yml`:
+```yaml
+hooks:
+  postWorktreeCreate:
+    - setup-environment.sh
+```
+
+### Implementing Database Branch Management
+
+Create hooks for database lifecycle:
 
 ```bash
-# Remove context (manual registry edit)
-# Edit ~/.dual/registry.json and remove the context entry
+# .dual/hooks/setup-database.sh
+#!/bin/bash
+set -e
 
-# Or delete entire project from registry
-# Remove the project key from ~/.dual/registry.json
+echo "Creating database branch for: $DUAL_CONTEXT_NAME"
+
+# Create PlanetScale branch
+pscale branch create myapp "$DUAL_CONTEXT_NAME" --from main
+
+# Get connection string
+CONNECTION_URL=$(pscale connect myapp "$DUAL_CONTEXT_NAME" --format url)
+
+# Write to env file
+echo "DATABASE_URL=$CONNECTION_URL" >> "$DUAL_CONTEXT_PATH/.env.local"
+
+echo "Database branch created"
 ```
-
----
-
-## Environment Variables
-
-The `dual` command wrapper injects the following environment variable:
-
-- `PORT` - The calculated port for the current service and context
-
-All other environment variables from your shell are preserved and passed through to the wrapped command.
-
----
-
-## Exit Codes
-
-The `dual` command wrapper preserves exit codes from wrapped commands:
 
 ```bash
-# If wrapped command exits with code 1
-dual pnpm build
-echo $?  # Outputs: 1
+# .dual/hooks/cleanup-database.sh
+#!/bin/bash
+set -e
 
-# If wrapped command succeeds
-dual pnpm test
-echo $?  # Outputs: 0
+echo "Cleaning up database for: $DUAL_CONTEXT_NAME"
+
+# Delete PlanetScale branch
+pscale branch delete myapp "$DUAL_CONTEXT_NAME" --force
+
+echo "Database branch deleted"
 ```
 
----
-
-## Error Messages
-
-### Configuration Errors
-
-```
-Error: failed to load config: no dual.config.yml found in current directory or any parent directory
-Hint: Run 'dual init' to create a configuration file
+Make executable and configure:
+```bash
+chmod +x .dual/hooks/setup-database.sh
+chmod +x .dual/hooks/cleanup-database.sh
 ```
 
-Solution: Run `dual init` in your project root.
-
-### Context Errors
-
-```
-Error: context "feature-x" not found in registry
-Hint: Run 'dual context create' to create this context
-```
-
-Solution: Run `dual context create feature-x`.
-
-### Service Errors
-
-```
-Error: could not auto-detect service from current directory
-Available services: [web api worker]
-Hint: Run this command from within a service directory or use --service flag
+```yaml
+hooks:
+  postWorktreeCreate:
+    - setup-database.sh
+  preWorktreeDelete:
+    - cleanup-database.sh
 ```
 
-Solution: Either `cd` into a service directory or use `dual --service <name> <command>`.
-
----
-
-## Tips and Tricks
-
-### Shell Aliases
+### CI/CD Integration
 
 ```bash
-# Add to ~/.bashrc or ~/.zshrc
-alias d="dual"
-alias dp="dual pnpm"
-alias dn="dual npm"
+# In CI/CD pipeline
 
-# Usage
-dp dev
-dn start
-```
+# 1. Install dual
+brew install lightfastai/tap/dual
 
-### Directory Bookmarks
+# 2. Initialize (if not committed)
+dual init --force
 
-```bash
-# Jump to service and run
-alias web="cd ~/Code/myproject/apps/web"
-alias api="cd ~/Code/myproject/apps/api"
+# 3. List contexts (JSON output for parsing)
+dual context list --json > contexts.json
 
-# Usage
-web && dual pnpm dev
-```
+# 4. Verify configuration
+dual doctor
 
-### tmux/Screen Sessions
-
-```bash
-# Start multiple services in tmux panes
-tmux new-session -s dev \; \
-  send-keys 'cd ~/Code/myproject/apps/web && dual pnpm dev' C-m \; \
-  split-window -h \; \
-  send-keys 'cd ~/Code/myproject/apps/api && dual pnpm dev' C-m
-```
-
-### Port Range Planning
-
-```bash
-# Plan your port ranges
-main:       4100-4199
-feature-1:  4200-4299
-feature-2:  4300-4399
-staging:    5100-5199
-```
-
-### Quick Port Lookup
-
-```bash
-# Add function to shell
-dport() {
-  dual port "$@" 2>/dev/null
-}
-
-# Usage
-curl http://localhost:$(dport api)/health
+# 5. Use in build scripts
+# (Access context information via dual context list --json)
 ```
 
 ---
@@ -1855,3 +1451,37 @@ curl http://localhost:$(dport api)/health
 - See [EXAMPLES.md](EXAMPLES.md) for real-world usage scenarios
 - See [ARCHITECTURE.md](ARCHITECTURE.md) for technical details
 - See [README.md](README.md) for project overview
+- See [CLAUDE.md](CLAUDE.md) for development guidance
+- See `.dual/hooks/README.md` for more hook examples
+
+---
+
+## Migration from v0.2.x
+
+If you're upgrading from v0.2.x, see the migration guide:
+
+### Removed Features
+
+- **Command wrapper mode**: `dual <command>` no longer injects PORT
+- **Port commands**: `dual port` and `dual ports` removed
+- **`dual open` command**: Removed
+- **`dual sync` command**: Removed
+- **`dual env` commands**: Environment variable management removed
+- **`dual context create`**: Deprecated in favor of `dual create <branch>`
+- **Global registry**: Moved from `~/.dual/registry.json` to `$PROJECT_ROOT/.dual/.local/registry.json`
+
+### New Features
+
+- **Worktree lifecycle management**: `dual create` and `dual delete`
+- **Hook system**: Lifecycle hooks for custom automation
+- **Project-local registry**: Each project has its own registry
+
+### Migration Steps
+
+1. **Update configuration**: Add `worktrees` and `hooks` sections to `dual.config.yml`
+2. **Create hook scripts**: Implement port assignment, database setup, etc. in hooks
+3. **Recreate contexts**: Old contexts in global registry are not migrated automatically
+4. **Update workflows**: Replace `dual <command>` with hook-based environment setup
+5. **Add registry to .gitignore**: `/.dual/.local/`
+
+See [MIGRATION.md](MIGRATION.md) for detailed migration instructions.

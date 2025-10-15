@@ -2,7 +2,6 @@ package integration
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -14,9 +13,6 @@ func TestFullWorkflow(t *testing.T) {
 
 	// Initialize git repository
 	h.InitGitRepo()
-
-	// Create a main branch
-	h.CreateGitBranch("main")
 
 	// Step 1: dual init
 	t.Log("Step 1: Running dual init")
@@ -63,86 +59,41 @@ func TestFullWorkflow(t *testing.T) {
 	h.AssertFileContains("dual.config.yml", "worker:")
 	h.AssertFileContains("dual.config.yml", "apps/worker")
 
-	// Step 3: Create context
+	// Add worktrees configuration to enable dual create
+	h.WriteFile("dual.config.yml", `version: 1
+services:
+  web:
+    path: apps/web
+  api:
+    path: apps/api
+  worker:
+    path: apps/worker
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
+`)
+
+	// Create an initial commit (required for git worktree add)
+	h.WriteFile("README.md", "# Test Project")
+	h.RunGitCommand("add", "README.md")
+	h.RunGitCommand("commit", "-m", "Initial commit")
+
+	// Step 3: Create context (using a feature branch name to avoid conflicts)
 	t.Log("Step 3: Creating context")
-	stdout, stderr, exitCode = h.RunDual("context", "create", "main", "--base-port", "4100")
+	stdout, stderr, exitCode = h.RunDual("create", "feature-x")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "Created context \"main\"")
-	h.AssertOutputContains(stdout, "Base Port: 4100")
+	h.AssertOutputContains(stdout, "Worktree created successfully")
 
 	// Verify registry was created
 	if !h.RegistryExists() {
 		t.Fatal("registry.json was not created")
 	}
 
-	registryContent := h.ReadRegistryJSON()
-	if !strings.Contains(registryContent, "4100") {
-		t.Errorf("registry does not contain base port 4100: %s", registryContent)
-	}
-
-	// Step 4: Query context
-	t.Log("Step 4: Querying context")
-	stdout, stderr, exitCode = h.RunDual("context")
+	// Step 4: Verify context exists in list
+	t.Log("Step 4: Verifying context in list")
+	stdout, stderr, exitCode = h.RunDual("list")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "Context: main")
-	h.AssertOutputContains(stdout, "Base Port: 4100")
-
-	// Step 5: Query individual port
-	t.Log("Step 5: Querying individual port")
-	stdout, stderr, exitCode = h.RunDualInDir(filepath.Join(h.ProjectDir, "apps/api"), "port")
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-
-	// API should be port 4101 (alphabetically first: api=0, web=2, worker=3)
-	// port = basePort (4100) + index (0) + 1 = 4101
-	h.AssertOutputContains(stdout, "4101")
-
-	// Step 6: Query all ports
-	t.Log("Step 6: Querying all ports")
-	stdout, stderr, exitCode = h.RunDual("ports")
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "api")
-	h.AssertOutputContains(stdout, "4101") // api: 4100 + 0 + 1
-	h.AssertOutputContains(stdout, "web")
-	h.AssertOutputContains(stdout, "4102") // web: 4100 + 1 + 1
-	h.AssertOutputContains(stdout, "worker")
-	h.AssertOutputContains(stdout, "4103") // worker: 4100 + 2 + 1
-
-	// Step 7: Test command wrapper
-	t.Log("Step 7: Testing command wrapper")
-
-	// Create a simple script that prints the PORT environment variable
-	scriptContent := `#!/bin/sh
-echo "PORT=$PORT"
-`
-	h.WriteFile("print-port.sh", scriptContent)
-
-	// Make it executable
-	scriptPath := filepath.Join(h.ProjectDir, "print-port.sh")
-	if err := makeExecutable(scriptPath); err != nil {
-		t.Fatalf("failed to make script executable: %v", err)
-	}
-
-	// Run the script through dual from the web service directory
-	stdout, stderr, exitCode = h.RunDualInDir(
-		filepath.Join(h.ProjectDir, "apps/web"),
-		"sh", filepath.Join(h.ProjectDir, "print-port.sh"),
-	)
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stderr, "Context: main")
-	h.AssertOutputContains(stderr, "Service: web")
-	h.AssertOutputContains(stderr, "Port: 4102")
-	h.AssertOutputContains(stdout, "PORT=4102")
-
-	// Test with --service flag override
-	t.Log("Step 8: Testing --service flag override")
-	stdout, stderr, exitCode = h.RunDual(
-		"--service", "worker",
-		"sh", scriptPath,
-	)
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stderr, "Service: worker")
-	h.AssertOutputContains(stderr, "Port: 4103")
-	h.AssertOutputContains(stdout, "PORT=4103")
+	h.AssertOutputContains(stdout, "feature-x")
 }
 
 // TestFullWorkflowWithEnvFile tests the workflow with env file configuration
@@ -212,51 +163,38 @@ func TestContextAutoDetection(t *testing.T) {
 	defer h.RestoreHome()
 
 	h.InitGitRepo()
-	h.CreateGitBranch("feature/awesome-feature")
 
-	// Initialize dual
-	h.RunDual("init")
+	// Initialize dual with worktrees config
+	h.WriteFile("dual.config.yml", `version: 1
+services:
+  api:
+    path: services/api
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
+`)
+	h.CreateDirectory("services/api")
 
-	// Create context without specifying name (should auto-detect from git branch)
-	stdout, stderr, exitCode := h.RunDual("context", "create", "--base-port", "5000")
+	// Create an initial commit (required for git worktree add)
+	h.WriteFile("README.md", "# Test Project")
+	h.RunGitCommand("add", "README.md")
+	h.RunGitCommand("commit", "-m", "Initial commit")
+
+	// Create a feature branch worktree - dual create will create both the branch and worktree
+	stdout, stderr, exitCode := h.RunDual("create", "feature/awesome-feature")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "Auto-detected context name: feature/awesome-feature")
-	h.AssertOutputContains(stdout, "Created context \"feature/awesome-feature\"")
+	h.AssertOutputContains(stdout, "Worktree created successfully")
 
-	// Query context should show the auto-detected name
-	stdout, stderr, exitCode = h.RunDual("context")
+	// Verify the worktree was created and appears in the list
+	stdout, stderr, exitCode = h.RunDual("list")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "Context: feature/awesome-feature")
+	h.AssertOutputContains(stdout, "feature/awesome-feature")
+	// The test validates that worktrees can be created with branch names containing slashes
 }
 
 // TestContextAutoPortAssignment tests automatic port assignment
-func TestContextAutoPortAssignment(t *testing.T) {
-	h := NewTestHelper(t)
-	defer h.RestoreHome()
-
-	h.InitGitRepo()
-
-	// Initialize dual
-	h.RunDual("init")
-
-	// Create context without specifying port
-	h.CreateGitBranch("main")
-	stdout, stderr, exitCode := h.RunDual("context", "create", "main")
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "Auto-assigned base port: 4100")
-
-	// Create another context without specifying port
-	h.CreateGitBranch("develop")
-	stdout, stderr, exitCode = h.RunDual("context", "create", "develop")
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "Auto-assigned base port: 4200")
-
-	// Create a third context
-	h.CreateGitBranch("feature")
-	stdout, stderr, exitCode = h.RunDual("context", "create", "feature")
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "Auto-assigned base port: 4300")
-}
+// REMOVED: This test was specific to port assignment functionality which has been removed.
+// The worktree lifecycle manager no longer manages ports.
 
 // makeExecutable makes a file executable
 func makeExecutable(path string) error {

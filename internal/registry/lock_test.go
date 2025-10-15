@@ -10,11 +10,8 @@ import (
 
 // TestConcurrentRegistryWrites tests that multiple concurrent registry operations don't corrupt data
 func TestConcurrentRegistryWrites(t *testing.T) {
-	// Use a temporary directory for testing
-	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	// Use a temporary directory as project root
+	projectRoot := t.TempDir()
 
 	const numGoroutines = 10
 	const numIterations = 5
@@ -30,7 +27,7 @@ func TestConcurrentRegistryWrites(t *testing.T) {
 
 			for j := 0; j < numIterations; j++ {
 				// Load registry (acquires lock)
-				reg, err := LoadRegistry()
+				reg, err := LoadRegistry(projectRoot)
 				if err != nil {
 					errors <- err
 					return
@@ -39,9 +36,9 @@ func TestConcurrentRegistryWrites(t *testing.T) {
 				// Perform some operations
 				projectPath := "/test/project"
 				contextName := "context"
-				basePort := 4100 + (id * 100) + j
+				contextPath := "/test/project/context"
 
-				if err := reg.SetContext(projectPath, contextName, basePort, ""); err != nil {
+				if err := reg.SetContext(projectPath, contextName, contextPath); err != nil {
 					reg.Close()
 					errors <- err
 					return
@@ -76,7 +73,7 @@ func TestConcurrentRegistryWrites(t *testing.T) {
 	}
 
 	// Verify registry is still valid and not corrupted
-	reg, err := LoadRegistry()
+	reg, err := LoadRegistry(projectRoot)
 	if err != nil {
 		t.Fatalf("Failed to load registry after concurrent writes: %v", err)
 	}
@@ -93,22 +90,19 @@ func TestConcurrentRegistryWrites(t *testing.T) {
 		t.Fatalf("Failed to get context after concurrent writes: %v", err)
 	}
 
-	// Should have a valid base port
-	if ctx.BasePort < 4100 {
-		t.Errorf("Invalid base port after concurrent writes: %d", ctx.BasePort)
+	// Should have the correct path
+	if ctx.Path != "/test/project/context" {
+		t.Errorf("Invalid context path after concurrent writes: %s", ctx.Path)
 	}
 }
 
 // TestLockTimeout tests that lock acquisition times out appropriately
 func TestLockTimeout(t *testing.T) {
-	// Use a temporary directory for testing
-	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	// Use a temporary directory as project root
+	projectRoot := t.TempDir()
 
 	// First registry holds the lock
-	reg1, err := LoadRegistry()
+	reg1, err := LoadRegistry(projectRoot)
 	if err != nil {
 		t.Fatalf("Failed to load registry: %v", err)
 	}
@@ -121,7 +115,7 @@ func TestLockTimeout(t *testing.T) {
 	var loadErr error
 
 	go func() {
-		reg2, loadErr = LoadRegistry()
+		reg2, loadErr = LoadRegistry(projectRoot)
 		done <- true
 	}()
 
@@ -146,7 +140,7 @@ func TestLockTimeout(t *testing.T) {
 	}
 
 	// Should be able to acquire lock now
-	reg3, err := LoadRegistry()
+	reg3, err := LoadRegistry(projectRoot)
 	if err != nil {
 		t.Fatalf("Failed to load registry after releasing lock: %v", err)
 	}
@@ -155,27 +149,24 @@ func TestLockTimeout(t *testing.T) {
 
 // TestStaleLockCleanup tests that stale locks can be detected and handled
 func TestStaleLockCleanup(t *testing.T) {
-	// Use a temporary directory for testing
-	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	// Use a temporary directory as project root
+	projectRoot := t.TempDir()
 
 	// Load and immediately close to create lock file
-	reg1, err := LoadRegistry()
+	reg1, err := LoadRegistry(projectRoot)
 	if err != nil {
 		t.Fatalf("Failed to load registry: %v", err)
 	}
 	reg1.Close()
 
 	// Verify lock file exists
-	lockPath, _ := GetLockPath()
+	lockPath, _ := GetLockPath(projectRoot)
 	if _, err := os.Stat(lockPath); os.IsNotExist(err) {
 		t.Log("Lock file was cleaned up automatically (expected behavior)")
 	}
 
 	// Should be able to acquire lock again
-	reg2, err := LoadRegistry()
+	reg2, err := LoadRegistry(projectRoot)
 	if err != nil {
 		t.Fatalf("Failed to load registry after lock cleanup: %v", err)
 	}
@@ -184,19 +175,16 @@ func TestStaleLockCleanup(t *testing.T) {
 
 // TestAtomicWriteFailure tests that atomic write failure doesn't corrupt registry
 func TestAtomicWriteFailure(t *testing.T) {
-	// Use a temporary directory for testing
-	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	// Use a temporary directory as project root
+	projectRoot := t.TempDir()
 
 	// Create initial registry with data
-	reg, err := LoadRegistry()
+	reg, err := LoadRegistry(projectRoot)
 	if err != nil {
 		t.Fatalf("Failed to load registry: %v", err)
 	}
 
-	if err := reg.SetContext("/test/project", "main", 4100, ""); err != nil {
+	if err := reg.SetContext("/test/project", "main", "/test/project/main"); err != nil {
 		t.Fatalf("Failed to set context: %v", err)
 	}
 
@@ -206,7 +194,7 @@ func TestAtomicWriteFailure(t *testing.T) {
 	reg.Close()
 
 	// Load registry again
-	reg2, err := LoadRegistry()
+	reg2, err := LoadRegistry(projectRoot)
 	if err != nil {
 		t.Fatalf("Failed to load registry: %v", err)
 	}
@@ -217,8 +205,8 @@ func TestAtomicWriteFailure(t *testing.T) {
 		t.Fatalf("Failed to get context: %v", err)
 	}
 
-	if ctx.BasePort != 4100 {
-		t.Errorf("Expected base port 4100, got %d", ctx.BasePort)
+	if ctx.Path != "/test/project/main" {
+		t.Errorf("Expected path '/test/project/main', got '%s'", ctx.Path)
 	}
 
 	reg2.Close()
@@ -226,17 +214,14 @@ func TestAtomicWriteFailure(t *testing.T) {
 
 // TestLockPathGeneration tests that lock path is generated correctly
 func TestLockPathGeneration(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	projectRoot := "/test/project"
 
-	lockPath, err := GetLockPath()
+	lockPath, err := GetLockPath(projectRoot)
 	if err != nil {
 		t.Fatalf("GetLockPath() failed: %v", err)
 	}
 
-	expected := filepath.Join(tmpDir, ".dual", "registry.json.lock")
+	expected := filepath.Join(projectRoot, ".dual", ".local", "registry.json.lock")
 	if lockPath != expected {
 		t.Errorf("Expected lock path '%s', got '%s'", expected, lockPath)
 	}
@@ -244,12 +229,9 @@ func TestLockPathGeneration(t *testing.T) {
 
 // TestMultipleCloseCallsSafe tests that calling Close() multiple times is safe
 func TestMultipleCloseCallsSafe(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	projectRoot := t.TempDir()
 
-	reg, err := LoadRegistry()
+	reg, err := LoadRegistry(projectRoot)
 	if err != nil {
 		t.Fatalf("Failed to load registry: %v", err)
 	}

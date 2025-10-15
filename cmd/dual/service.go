@@ -10,9 +10,6 @@ import (
 	"strings"
 
 	"github.com/lightfastai/dual/internal/config"
-	"github.com/lightfastai/dual/internal/context"
-	"github.com/lightfastai/dual/internal/registry"
-	"github.com/lightfastai/dual/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -21,7 +18,6 @@ var (
 	serviceEnvFile string
 	// list command flags
 	listJSON     bool
-	listPorts    bool
 	listAbsPaths bool
 	// remove command flags
 	forceRemove bool
@@ -51,7 +47,6 @@ var serviceListCmd = &cobra.Command{
 
 By default, shows service name, path, and env file in a human-readable format.
 Use --json for machine-readable output.
-Use --ports to show port assignments for the current context.
 Use --paths to show absolute paths instead of relative paths.`,
 	Args: cobra.NoArgs,
 	RunE: runServiceList,
@@ -61,12 +56,6 @@ var serviceRemoveCmd = &cobra.Command{
 	Use:   "remove <name>",
 	Short: "Remove a service from the configuration",
 	Long: `Remove a service from the dual configuration.
-
-WARNING: Removing a service changes port assignments for services that come after it
-alphabetically, as ports are calculated based on alphabetical order.
-
-The command will show which services will have their ports changed and prompt for
-confirmation unless --force is specified.
 
 This command does NOT delete any files or directories.`,
 	Args: cobra.ExactArgs(1),
@@ -79,7 +68,6 @@ func init() {
 	_ = serviceAddCmd.MarkFlagRequired("path")
 
 	serviceListCmd.Flags().BoolVar(&listJSON, "json", false, "Output in JSON format")
-	serviceListCmd.Flags().BoolVar(&listPorts, "ports", false, "Show port assignments for current context")
 	serviceListCmd.Flags().BoolVar(&listAbsPaths, "paths", false, "Show absolute paths instead of relative paths")
 
 	serviceRemoveCmd.Flags().BoolVarP(&forceRemove, "force", "f", false, "Skip confirmation prompt")
@@ -195,52 +183,20 @@ func runServiceList(cmd *cobra.Command, args []string) error {
 	}
 	sort.Strings(serviceNames)
 
-	// Determine if we need to calculate ports
-	var ports map[string]int
-	var contextName string
-	var projectPath string
-	if listPorts {
-		// Detect context
-		detector := context.NewDetector()
-		contextName, err = detector.DetectContext()
-		if err != nil {
-			return fmt.Errorf("failed to detect context: %w", err)
-		}
-
-		// Get project identifier for registry
-		projectPath, err = config.GetProjectIdentifier(projectRoot)
-		if err != nil {
-			return fmt.Errorf("failed to get project identifier: %w", err)
-		}
-
-		// Load registry
-		reg, err := registry.LoadRegistry()
-		if err != nil {
-			return fmt.Errorf("failed to load registry: %w", err)
-		}
-
-		// Calculate all ports
-		ports, err = service.CalculateAllPorts(cfg, reg, projectPath, contextName)
-		if err != nil {
-			return fmt.Errorf("failed to calculate ports: %w\nHint: Run 'dual context create %s' to create the context", err, contextName)
-		}
-	}
-
 	// Output in requested format
 	if listJSON {
-		return outputListJSON(cfg, projectRoot, serviceNames, ports)
+		return outputListJSON(cfg, projectRoot, serviceNames)
 	}
 
-	return outputListHuman(cfg, projectRoot, serviceNames, contextName, ports)
+	return outputListHuman(cfg, projectRoot, serviceNames)
 }
 
-func outputListJSON(cfg *config.Config, projectRoot string, serviceNames []string, ports map[string]int) error {
+func outputListJSON(cfg *config.Config, projectRoot string, serviceNames []string) error {
 	type serviceOutput struct {
 		Name         string `json:"name"`
 		Path         string `json:"path"`
 		EnvFile      string `json:"envFile,omitempty"`
 		AbsolutePath string `json:"absolutePath,omitempty"`
-		Port         int    `json:"port,omitempty"`
 	}
 
 	output := struct {
@@ -261,10 +217,6 @@ func outputListJSON(cfg *config.Config, projectRoot string, serviceNames []strin
 			svcOut.AbsolutePath = filepath.Join(projectRoot, svc.Path)
 		}
 
-		if ports != nil {
-			svcOut.Port = ports[name]
-		}
-
 		output.Services = append(output.Services, svcOut)
 	}
 
@@ -277,17 +229,8 @@ func outputListJSON(cfg *config.Config, projectRoot string, serviceNames []strin
 	return nil
 }
 
-func outputListHuman(cfg *config.Config, projectRoot string, serviceNames []string, contextName string, ports map[string]int) error {
-	if ports != nil {
-		// Get the base port from the first service's port
-		basePort := 0
-		if len(serviceNames) > 0 {
-			basePort = ports[serviceNames[0]] - 1
-		}
-		fmt.Printf("Services (context: %s, base: %d):\n", contextName, basePort)
-	} else {
-		fmt.Println("Services in dual.config.yml:")
-	}
+func outputListHuman(cfg *config.Config, projectRoot string, serviceNames []string) error {
+	fmt.Println("Services in dual.config.yml:")
 
 	// Calculate column widths for alignment
 	maxNameLen := 0
@@ -314,12 +257,10 @@ func outputListHuman(cfg *config.Config, projectRoot string, serviceNames []stri
 			pathStr = filepath.Join(projectRoot, svc.Path)
 		}
 
-		// Format: name (padded) path (padded) [envfile or port]
+		// Format: name (padded) path (padded) [envfile]
 		fmt.Printf("  %-*s  %-*s", maxNameLen, name, maxPathLen, pathStr)
 
-		if ports != nil {
-			fmt.Printf("  Port: %d", ports[name])
-		} else if svc.EnvFile != "" {
+		if svc.EnvFile != "" {
 			fmt.Printf("  %s", svc.EnvFile)
 		}
 		fmt.Println()
@@ -348,25 +289,6 @@ func runServiceRemove(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("service %q not found in configuration", serviceName)
 	}
 
-	// Calculate impact of removing this service
-	affectedServices := calculateRemovalImpact(cfg, serviceName)
-
-	// Show warning if removing will affect other services
-	if len(affectedServices) > 0 && !forceRemove {
-		fmt.Printf("Warning: Removing %q will change port assignments:\n", serviceName)
-		for _, impact := range affectedServices {
-			fmt.Printf("  %s: %d → %d (will move to index %d)\n",
-				impact.ServiceName, impact.OldPort, impact.NewPort, impact.NewIndex)
-		}
-		fmt.Println()
-
-		// Prompt for confirmation
-		if !promptConfirm("Continue?") {
-			fmt.Println("Cancelled")
-			return nil
-		}
-	}
-
 	// Remove service from config
 	delete(cfg.Services, serviceName)
 
@@ -379,70 +301,6 @@ func runServiceRemove(cmd *cobra.Command, args []string) error {
 	fmt.Printf("[dual] Service %q removed from config\n", serviceName)
 
 	return nil
-}
-
-type portImpact struct {
-	ServiceName string
-	OldIndex    int
-	NewIndex    int
-	OldPort     int
-	NewPort     int
-}
-
-func calculateRemovalImpact(cfg *config.Config, serviceToRemove string) []portImpact {
-	// Get sorted service names (current state)
-	currentServices := make([]string, 0, len(cfg.Services))
-	for name := range cfg.Services {
-		currentServices = append(currentServices, name)
-	}
-	sort.Strings(currentServices)
-
-	// Get sorted service names after removal (future state)
-	futureServices := make([]string, 0, len(cfg.Services)-1)
-	for _, name := range currentServices {
-		if name != serviceToRemove {
-			futureServices = append(futureServices, name)
-		}
-	}
-
-	// Find services that will have different indices
-	var impacts []portImpact
-	for _, name := range futureServices {
-		oldIndex := -1
-		newIndex := -1
-
-		// Find old index
-		for i, svcName := range currentServices {
-			if svcName == name {
-				oldIndex = i
-				break
-			}
-		}
-
-		// Find new index
-		for i, svcName := range futureServices {
-			if svcName == name {
-				newIndex = i
-				break
-			}
-		}
-
-		// If indices differ, this service is affected
-		if oldIndex != newIndex {
-			// Use a dummy base port for demonstration (4200)
-			// In reality, this varies by context, but the delta is what matters
-			const demoBasePort = 4200
-			impacts = append(impacts, portImpact{
-				ServiceName: name,
-				OldIndex:    oldIndex,
-				NewIndex:    newIndex,
-				OldPort:     demoBasePort + oldIndex + 1,
-				NewPort:     demoBasePort + newIndex + 1,
-			})
-		}
-	}
-
-	return impacts
 }
 
 func promptConfirm(message string) bool {

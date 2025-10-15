@@ -12,38 +12,59 @@ This directory contains comprehensive integration tests for the `dual` CLI tool.
   - Git repository initialization and manipulation
   - File system operations
   - Assertion helpers
+  - Project-local registry support
 
 - **full_workflow_test.go**: Tests for the complete dual workflow
-  - `TestFullWorkflow`: End-to-end test of init → service add → context create → port query → command wrapper
+  - `TestFullWorkflow`: End-to-end test of init → service add → context create → context query
   - `TestFullWorkflowWithEnvFile`: Workflow with env file configuration
   - `TestInitForceFlag`: Testing the --force flag for dual init
   - `TestContextAutoDetection`: Automatic context name detection from git branches
-  - `TestContextAutoPortAssignment`: Automatic base port assignment
 
 - **worktree_test.go**: Tests for git worktree scenarios
   - `TestMultiWorktreeSetup`: Full worktree workflow with multiple branches
-  - `TestWorktreeContextIsolation`: Port isolation across different worktrees
+  - `TestWorktreeContextIsolation`: Context isolation across different worktrees
   - `TestWorktreeWithDualContextFile`: Using .dual-context file override in worktrees
   - `TestWorktreeServiceDetection`: Service detection in nested worktree directories
 
-- **service_detection_test.go**: Service auto-detection tests
-  - `TestServiceAutoDetection`: Detection from various directory levels
-  - `TestServiceDetectionLongestMatch`: Longest-match algorithm for nested services
-  - `TestServiceDetectionWithSymlinks`: Detection with symbolic links
-  - `TestServiceDetectionMultipleServices`: Detection with many services (7+ services)
-  - `TestServiceDetectionErrorMessages`: Error message quality
-  - `TestServiceDetectionWithCommandWrapper`: Detection in command wrapper mode
+- **lifecycle_hooks_test.go**: Tests for environment remapping and lifecycle features
+  - `TestEnvRemappingWithDualCreate`: Full worktree creation with env file generation
+  - `TestEnvRemappingRegeneration`: Env file regeneration on dual env set/unset
+  - `TestEnvRemapCommand`: Manual regeneration with dual env remap
+  - `TestEnvRemappingCleanup`: Cleanup of .dual/.local/ on worktree deletion
+  - `TestEnvRemappingWithHooks`: Hooks working alongside built-in remapping
+  - `TestEnvRemappingEmptyOverrides`: Sparse env file creation (no overrides = no files)
+  - `TestEnvRemappingServiceSpecificOnly`: Service-specific overrides without globals
+  - `TestEnvRemappingQuotedValues`: Special character handling in env values
+  - `TestEnvRemappingWithPORT`: PORT treated as a normal environment variable
 
-- **port_assignment_test.go**: Port calculation and conflict tests
-  - `TestPortConflictHandling`: Deterministic port assignment without conflicts
-  - `TestPortCalculationDeterminism`: Alphabetical service ordering
-  - `TestAutoPortAssignment`: Automatic port assignment with 100-port increments
-  - `TestPortAssignmentWithGaps`: Gap-filling in port assignments
-  - `TestPortBoundaryValidation`: Port range validation (1024-65535)
-  - `TestContextDuplicatePrevention`: Preventing duplicate contexts
-  - `TestPortCalculationWithManyServices`: Testing with 50+ services
-  - `TestPortStability`: Documenting port assignment behavior when services change
-  - `TestMultiProjectPortIsolation`: Independent port spaces for different projects
+- **context_crud_test.go**: Context lifecycle management tests
+  - `TestContextList`: Listing contexts with current context highlighting
+  - `TestContextListJSON`: JSON output format for context listing
+  - `TestContextListNoContexts`: Empty state handling
+  - `TestContextDelete`: Deleting contexts with --force flag
+  - `TestContextDeleteCurrent`: Prevention of current context deletion
+  - `TestContextDeleteNonExistent`: Error handling for missing contexts
+  - `TestContextListAll`: Listing contexts across all projects
+  - `TestContextDeleteShowsInfo`: Context information display before deletion
+  - `TestContextListSorting`: Alphabetical ordering of contexts
+
+- **service_crud_test.go**: Service management tests
+  - Service addition, removal, and listing
+  - Service path validation
+  - Env file configuration
+  - Service name validation
+
+- **doctor_test.go**: Health check and diagnostics tests
+  - `TestDoctorCommand`: Complete health check in initialized project
+  - `TestDoctorWithJSON`: JSON output format for diagnostics
+  - `TestDoctorWithoutConfig`: Error detection for missing config
+  - `TestDoctorWithInvalidServicePaths`: Path validation errors
+  - `TestDoctorWithFix`: Orphaned context cleanup with --fix
+  - `TestDoctorWithVerbose`: Detailed diagnostic output
+  - `TestDoctorExitCodes`: Exit code behavior (0=pass, 1=warnings, 2=errors)
+  - `TestDoctorWorktreeValidation`: Worktree health checks
+  - `TestDoctorEnvironmentFiles`: Env file validation
+  - `TestDoctorServiceDetection`: Service detection verification
 
 - **config_validation_test.go**: Configuration validation tests
   - `TestConfigValidationInvalidVersion`: Invalid config version handling
@@ -92,32 +113,43 @@ go tool cover -html=coverage-integration.out
 The integration tests cover:
 
 ### Core Workflows
-- ✓ Complete init → service add → context create → run workflow
-- ✓ Command wrapper with PORT environment variable injection
-- ✓ Port queries (individual and all services)
+- ✓ Complete init → service add → context create → context query workflow
+- ✓ Context lifecycle management (create, list, delete)
 - ✓ Context information display
+- ✓ Worktree lifecycle management with dual create/delete
+
+### Worktree Management
+- ✓ Creating worktrees with dual create
+- ✓ Deleting worktrees with dual delete
+- ✓ Worktree naming patterns
+- ✓ Registry integration with worktree operations
+- ✓ Hook execution during worktree lifecycle
+
+### Environment Remapping
+- ✓ Sparse .env file generation (.dual/.local/service/<service>/.env)
+- ✓ Global environment overrides (all services)
+- ✓ Service-specific environment overrides
+- ✓ Automatic regeneration on dual env set/unset
+- ✓ Manual regeneration with dual env remap
+- ✓ Cleanup on worktree deletion
+- ✓ Quoted value handling for special characters
+- ✓ PORT as normal environment variable
+- ✓ Header comments in generated files
 
 ### Git Integration
 - ✓ Git branch-based context detection
 - ✓ Multiple git worktrees with isolated contexts
 - ✓ Manual context override with .dual-context file
 - ✓ Service detection across worktrees
+- ✓ Project-local registry shared across worktrees
 
 ### Service Management
-- ✓ Auto-detection from current directory
-- ✓ Longest-match algorithm for nested services
+- ✓ Service addition, removal, and listing
 - ✓ Service path validation
+- ✓ Env file configuration
+- ✓ Service name validation (special characters)
+- ✓ Longest-match algorithm for nested services
 - ✓ Symbolic link handling
-- ✓ Multiple services (tested with 50+ services)
-- ✓ --service flag override
-
-### Port Assignment
-- ✓ Deterministic port calculation (basePort + serviceIndex + 1)
-- ✓ Alphabetical service ordering
-- ✓ Auto-assignment with 100-port increments
-- ✓ Gap-filling in port ranges
-- ✓ Port boundary validation (1024-65535)
-- ✓ Multi-project port isolation
 
 ### Configuration Validation
 - ✓ Version validation
@@ -127,14 +159,29 @@ The integration tests cover:
 - ✓ Env file path validation
 - ✓ YAML parsing error handling
 - ✓ Config file search in parent directories
+- ✓ Worktree configuration (path, naming)
+- ✓ Hook configuration validation
+
+### Health Checks (dual doctor)
+- ✓ Git repository validation
+- ✓ Configuration file validation
+- ✓ Registry validation
+- ✓ Service path checks
+- ✓ Environment file checks
+- ✓ Worktree validation
+- ✓ Orphaned context detection and cleanup
+- ✓ JSON output format
+- ✓ Verbose output mode
+- ✓ Exit code semantics (0=pass, 1=warnings, 2=errors)
 
 ### Error Handling
 - ✓ Missing config file
 - ✓ Unregistered context
 - ✓ Non-existent service
 - ✓ Service detection failure
-- ✓ Invalid port ranges
 - ✓ Duplicate context prevention
+- ✓ Current context deletion prevention
+- ✓ Orphaned worktree detection
 
 ## Test Utilities
 
@@ -144,28 +191,34 @@ The integration tests cover:
 - `NewTestHelper(t)`: Creates isolated test environment with temp directories
 - `RunDual(args...)`: Executes dual command in project directory
 - `RunDualInDir(dir, args...)`: Executes dual command in specific directory
+- `SetTestHome()`: Sets HOME to test-specific directory for isolation
+- `RestoreHome()`: Restores original HOME environment variable
 
 **Git Operations:**
 - `InitGitRepo()`: Initializes a git repository
 - `CreateGitBranch(name)`: Creates and checks out a git branch
-- `CreateGitWorktree(branch, path)`: Creates a git worktree
-- `RunGitCommand(args...)`: Executes git commands
+- `CreateGitWorktree(branch, path)`: Creates a git worktree at path
+- `RunGitCommand(args...)`: Executes git commands in project directory
 
 **File System:**
-- `WriteFile(path, content)`: Creates a file with content
-- `ReadFile(path)`: Reads file content
-- `FileExists(path)`: Checks if file exists
-- `CreateDirectory(path)`: Creates a directory
+- `WriteFile(path, content)`: Creates a file with content (relative to project)
+- `ReadFile(path)`: Reads file content (relative to project)
+- `ReadFileInDir(dir, path)`: Reads file from specific directory
+- `FileExists(path)`: Checks if file exists (relative to project)
+- `FileExistsInDir(dir, path)`: Checks if file exists in specific directory
+- `CreateDirectory(path)`: Creates a directory (relative to project)
 
 **Assertions:**
 - `AssertExitCode(got, want, output)`: Verifies exit code
 - `AssertOutputContains(output, expected)`: Checks for substring in output
 - `AssertOutputNotContains(output, unexpected)`: Checks substring is absent
 - `AssertFileContains(path, expected)`: Verifies file content
+- `AssertFileExists(path)`: Verifies file exists
+- `AssertFileNotExists(path)`: Verifies file does not exist
 
 **Registry:**
-- `ReadRegistryJSON()`: Reads registry content
-- `RegistryExists()`: Checks if registry file exists
+- `ReadRegistryJSON()`: Reads project-local registry content
+- `RegistryExists()`: Checks if project-local registry file exists
 
 ## CI Integration
 
@@ -181,10 +234,19 @@ Integration tests run automatically on every push and pull request via GitHub Ac
 Each test is completely isolated:
 
 1. **Temporary Directories**: Each test gets its own temp directory via `t.TempDir()`
-2. **Registry Isolation**: HOME environment variable set to test-specific directory
-3. **Git Repositories**: Fresh git repos created for each test
-4. **Binary Building**: Dual binary built once per test (cached by Go)
-5. **Cleanup**: Automatic cleanup via Go's testing framework
+2. **Registry Isolation**: Project-local registry at `$PROJECT_ROOT/.dual/.local/registry.json` (not global)
+3. **HOME Isolation**: HOME environment variable set to test-specific directory
+4. **Git Repositories**: Fresh git repos created for each test
+5. **Binary Building**: Dual binary built once per test (cached by Go)
+6. **Cleanup**: Automatic cleanup via Go's testing framework
+
+### Project-Local Registry
+
+Tests in v0.3.0 use project-local registries:
+- Registry location: `$PROJECT_ROOT/.dual/.local/registry.json`
+- Each test project has its own isolated registry
+- Worktrees share their parent repo's registry via path normalization
+- No global state across tests
 
 ## Test Execution Time
 
@@ -195,10 +257,6 @@ Approximate execution times:
 
 ## Known Test Behaviors
 
-### Port Assignment Order
-Services are always ordered alphabetically for deterministic port calculation:
-- `admin`, `api`, `auth`, `web`, `worker` → ports 4101, 4102, 4103, 4104, 4105
-
 ### Worktree Requirements
 Git worktree tests require service directories to be committed before creating worktrees, so tests include `.gitkeep` files and commit them.
 
@@ -207,17 +265,26 @@ Git worktree tests require service directories to be committed before creating w
 2. `.dual-context` file content
 3. "default" (fallback)
 
+### Environment File Generation
+- `.dual/.local/service/<service>/.env` files are only created when overrides exist (sparse pattern)
+- Files are automatically regenerated on `dual env set` and `dual env unset`
+- Files include warning headers about being auto-generated
+- Service-specific overrides take precedence over global overrides
+
 ## Contributing
 
 When adding new integration tests:
 
-1. Use the `TestHelper` for consistency
-2. Ensure test isolation (no shared state)
-3. Add descriptive test names following the pattern `Test<Feature><Scenario>`
-4. Include both success and failure cases
-5. Document any special setup requirements
-6. Keep tests fast (< 2 seconds per test when possible)
-7. Clean up resources (though temp dirs auto-cleanup)
+1. **Use TestHelper**: Use `TestHelper` for all test utilities to ensure consistency
+2. **Ensure Isolation**: No shared state between tests - each test gets its own temp directory and registry
+3. **Naming Convention**: Follow the pattern `Test<Feature><Scenario>` (e.g., `TestEnvRemappingWithHooks`)
+4. **Test Both Paths**: Include both success and failure cases
+5. **Document Setup**: Document any special setup requirements (e.g., git commits for worktrees)
+6. **Keep Tests Fast**: Aim for < 2 seconds per test when possible
+7. **Use RestoreHome**: Call `defer h.RestoreHome()` to restore HOME after tests
+8. **Test Project-Local Registry**: Verify registry operations use `$PROJECT_ROOT/.dual/.local/registry.json`
+9. **Test Worktree Isolation**: When testing worktrees, verify context sharing via parent repo registry
+10. **Hook Testing**: When testing hooks, ensure scripts are made executable with `os.Chmod(path, 0o755)`
 
 ## Debugging Tests
 
@@ -238,11 +305,15 @@ time.Sleep(60 * time.Second) // Pause to inspect
 ## Future Test Coverage
 
 Potential areas for additional tests:
-- [ ] `dual open` command
-- [ ] `dual sync` command with env file writing
-- [ ] Concurrent dual command execution
+- [ ] Hook failure handling and rollback scenarios
+- [ ] Hook output parsing for environment variables
+- [ ] Multiple hooks executing in sequence
+- [ ] Concurrent dual command execution with file locking
 - [ ] Very large projects (100+ services)
-- [ ] Network port availability checking
-- [ ] Shell integration tests
-- [ ] Performance benchmarks
-- [ ] Upgrade/migration scenarios
+- [ ] Complex worktree configurations with custom naming patterns
+- [ ] Environment variable precedence edge cases
+- [ ] Performance benchmarks for large registries
+- [ ] Upgrade/migration scenarios from v0.2.x to v0.3.0
+- [ ] Symlink handling in worktree paths
+- [ ] Registry corruption recovery
+- [ ] Hook script error messages and debugging

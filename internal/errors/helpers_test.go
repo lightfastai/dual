@@ -65,12 +65,12 @@ func TestContextNotFound(t *testing.T) {
 		{
 			name:        "default context",
 			contextName: "default",
-			wantFixes:   []string{"dual context create default"},
+			wantFixes:   []string{"dual create default"},
 		},
 		{
 			name:        "feature branch context",
 			contextName: "feature-auth",
-			wantFixes:   []string{"dual context create feature-auth", "dual context list"},
+			wantFixes:   []string{"dual create feature-auth", "dual list"},
 		},
 	}
 

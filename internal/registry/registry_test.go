@@ -10,13 +10,10 @@ import (
 
 // TestLoadRegistry_EmptyFile tests loading when no registry exists
 func TestLoadRegistry_EmptyFile(t *testing.T) {
-	// Use a temporary directory for testing
-	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	// Use a temporary directory as project root
+	projectRoot := t.TempDir()
 
-	registry, err := LoadRegistry()
+	registry, err := LoadRegistry(projectRoot)
 	if err != nil {
 		t.Fatalf("LoadRegistry() failed: %v", err)
 	}
@@ -37,14 +34,11 @@ func TestLoadRegistry_EmptyFile(t *testing.T) {
 
 // TestLoadRegistry_CorruptFile tests handling of corrupt registry files
 func TestLoadRegistry_CorruptFile(t *testing.T) {
-	// Use a temporary directory for testing
-	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	// Use a temporary directory as project root
+	projectRoot := t.TempDir()
 
 	// Create registry directory
-	registryDir := filepath.Join(tmpDir, ".dual")
+	registryDir := filepath.Join(projectRoot, ".dual", ".local")
 	if err := os.MkdirAll(registryDir, 0o755); err != nil {
 		t.Fatalf("Failed to create registry directory: %v", err)
 	}
@@ -56,7 +50,7 @@ func TestLoadRegistry_CorruptFile(t *testing.T) {
 	}
 
 	// Should return empty registry without error
-	registry, err := LoadRegistry()
+	registry, err := LoadRegistry(projectRoot)
 	if err != nil {
 		t.Fatalf("LoadRegistry() failed on corrupt file: %v", err)
 	}
@@ -69,14 +63,11 @@ func TestLoadRegistry_CorruptFile(t *testing.T) {
 
 // TestLoadRegistry_ValidFile tests loading a valid registry
 func TestLoadRegistry_ValidFile(t *testing.T) {
-	// Use a temporary directory for testing
-	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	// Use a temporary directory as project root
+	projectRoot := t.TempDir()
 
 	// Create registry directory
-	registryDir := filepath.Join(tmpDir, ".dual")
+	registryDir := filepath.Join(projectRoot, ".dual", ".local")
 	if err := os.MkdirAll(registryDir, 0o755); err != nil {
 		t.Fatalf("Failed to create registry directory: %v", err)
 	}
@@ -87,9 +78,8 @@ func TestLoadRegistry_ValidFile(t *testing.T) {
 			"/test/project": {
 				Contexts: map[string]Context{
 					"main": {
-						Created:  time.Now(),
-						BasePort: 4100,
-						Path:     "/test/project",
+						Created: time.Now(),
+						Path:    "/test/project",
 					},
 				},
 			},
@@ -107,7 +97,7 @@ func TestLoadRegistry_ValidFile(t *testing.T) {
 	}
 
 	// Load and verify
-	registry, err := LoadRegistry()
+	registry, err := LoadRegistry(projectRoot)
 	if err != nil {
 		t.Fatalf("LoadRegistry() failed: %v", err)
 	}
@@ -126,36 +116,29 @@ func TestLoadRegistry_ValidFile(t *testing.T) {
 		t.Errorf("Expected 1 context, got %d", len(project.Contexts))
 	}
 
-	context, exists := project.Contexts["main"]
+	_, exists = project.Contexts["main"]
 	if !exists {
 		t.Fatal("Expected context 'main' not found")
-	}
-
-	if context.BasePort != 4100 {
-		t.Errorf("Expected base port 4100, got %d", context.BasePort)
 	}
 }
 
 // TestSaveRegistry tests saving the registry atomically
 func TestSaveRegistry(t *testing.T) {
-	// Use a temporary directory for testing
-	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	// Use a temporary directory as project root
+	projectRoot := t.TempDir()
 
 	registry := &Registry{
 		Projects: map[string]Project{
 			"/test/project": {
 				Contexts: map[string]Context{
 					"feature": {
-						Created:  time.Now(),
-						BasePort: 4200,
-						Path:     "/test/project/feature",
+						Created: time.Now(),
+						Path:    "/test/project/feature",
 					},
 				},
 			},
 		},
+		projectRoot: projectRoot,
 	}
 
 	// Save registry
@@ -164,7 +147,7 @@ func TestSaveRegistry(t *testing.T) {
 	}
 
 	// Verify file exists
-	registryPath := filepath.Join(tmpDir, ".dual", "registry.json")
+	registryPath := filepath.Join(projectRoot, ".dual", ".local", "registry.json")
 	if _, err := os.Stat(registryPath); os.IsNotExist(err) {
 		t.Fatal("Registry file was not created")
 	}
@@ -176,7 +159,7 @@ func TestSaveRegistry(t *testing.T) {
 	}
 
 	// Load and verify
-	loadedRegistry, err := LoadRegistry()
+	loadedRegistry, err := LoadRegistry(projectRoot)
 	if err != nil {
 		t.Fatalf("Failed to load saved registry: %v", err)
 	}
@@ -188,8 +171,8 @@ func TestSaveRegistry(t *testing.T) {
 
 	project := loadedRegistry.Projects["/test/project"]
 	context := project.Contexts["feature"]
-	if context.BasePort != 4200 {
-		t.Errorf("Expected base port 4200, got %d", context.BasePort)
+	if context.Path != "/test/project/feature" {
+		t.Errorf("Expected path '/test/project/feature', got '%s'", context.Path)
 	}
 }
 
@@ -200,9 +183,8 @@ func TestGetContext(t *testing.T) {
 			"/test/project": {
 				Contexts: map[string]Context{
 					"main": {
-						Created:  time.Now(),
-						BasePort: 4100,
-						Path:     "/test/project",
+						Created: time.Now(),
+						Path:    "/test/project",
 					},
 				},
 			},
@@ -215,8 +197,8 @@ func TestGetContext(t *testing.T) {
 		t.Fatalf("GetContext() failed: %v", err)
 	}
 
-	if context.BasePort != 4100 {
-		t.Errorf("Expected base port 4100, got %d", context.BasePort)
+	if context.Path != "/test/project" {
+		t.Errorf("Expected path '/test/project', got '%s'", context.Path)
 	}
 
 	// Test non-existent project
@@ -239,7 +221,7 @@ func TestSetContext(t *testing.T) {
 	}
 
 	// Create new context
-	err := registry.SetContext("/test/project", "feature", 4200, "/test/project/feature")
+	err := registry.SetContext("/test/project", "feature", "/test/project/feature")
 	if err != nil {
 		t.Fatalf("SetContext() failed: %v", err)
 	}
@@ -250,16 +232,12 @@ func TestSetContext(t *testing.T) {
 		t.Fatalf("GetContext() failed after SetContext: %v", err)
 	}
 
-	if context.BasePort != 4200 {
-		t.Errorf("Expected base port 4200, got %d", context.BasePort)
-	}
-
 	if context.Path != "/test/project/feature" {
 		t.Errorf("Expected path '/test/project/feature', got '%s'", context.Path)
 	}
 
 	// Update existing context
-	err = registry.SetContext("/test/project", "feature", 4300, "/test/project/feature2")
+	err = registry.SetContext("/test/project", "feature", "/test/project/feature2")
 	if err != nil {
 		t.Fatalf("SetContext() failed on update: %v", err)
 	}
@@ -270,8 +248,8 @@ func TestSetContext(t *testing.T) {
 		t.Fatalf("GetContext() failed after update: %v", err)
 	}
 
-	if context.BasePort != 4300 {
-		t.Errorf("Expected updated base port 4300, got %d", context.BasePort)
+	if context.Path != "/test/project/feature2" {
+		t.Errorf("Expected updated path '/test/project/feature2', got '%s'", context.Path)
 	}
 }
 
@@ -281,8 +259,8 @@ func TestDeleteContext(t *testing.T) {
 		Projects: map[string]Project{
 			"/test/project": {
 				Contexts: map[string]Context{
-					"feature1": {BasePort: 4100},
-					"feature2": {BasePort: 4200},
+					"feature1": {Created: time.Now()},
+					"feature2": {Created: time.Now()},
 				},
 			},
 		},
@@ -330,9 +308,9 @@ func TestListContexts(t *testing.T) {
 		Projects: map[string]Project{
 			"/test/project": {
 				Contexts: map[string]Context{
-					"main":     {BasePort: 4100},
-					"feature1": {BasePort: 4200},
-					"feature2": {BasePort: 4300},
+					"main":     {Created: time.Now()},
+					"feature1": {Created: time.Now()},
+					"feature2": {Created: time.Now()},
 				},
 			},
 		},
@@ -362,85 +340,13 @@ func TestListContexts(t *testing.T) {
 	}
 }
 
-// TestFindNextAvailablePort tests finding the next available port
-func TestFindNextAvailablePort(t *testing.T) {
-	tests := []struct { //nolint:govet // Test struct optimization not critical
-		name         string
-		registry     *Registry
-		expectedPort int
-	}{
-		{
-			name: "Empty registry",
-			registry: &Registry{
-				Projects: make(map[string]Project),
-			},
-			expectedPort: 4100,
-		},
-		{
-			name: "One port used",
-			registry: &Registry{
-				Projects: map[string]Project{
-					"/test/project": {
-						Contexts: map[string]Context{
-							"main": {BasePort: 4100},
-						},
-					},
-				},
-			},
-			expectedPort: 4200,
-		},
-		{
-			name: "Multiple ports used",
-			registry: &Registry{
-				Projects: map[string]Project{
-					"/test/project1": {
-						Contexts: map[string]Context{
-							"main": {BasePort: 4100},
-							"dev":  {BasePort: 4200},
-						},
-					},
-					"/test/project2": {
-						Contexts: map[string]Context{
-							"main": {BasePort: 4300},
-						},
-					},
-				},
-			},
-			expectedPort: 4400,
-		},
-		{
-			name: "Gap in ports",
-			registry: &Registry{
-				Projects: map[string]Project{
-					"/test/project": {
-						Contexts: map[string]Context{
-							"main": {BasePort: 4100},
-							"dev":  {BasePort: 4300},
-						},
-					},
-				},
-			},
-			expectedPort: 4200,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			port := tt.registry.FindNextAvailablePort()
-			if port != tt.expectedPort {
-				t.Errorf("Expected port %d, got %d", tt.expectedPort, port)
-			}
-		})
-	}
-}
-
 // TestGetAllProjects tests listing all projects
 func TestGetAllProjects(t *testing.T) {
 	registry := &Registry{
 		Projects: map[string]Project{
-			"/test/project3": {Contexts: map[string]Context{"main": {BasePort: 4100}}},
-			"/test/project1": {Contexts: map[string]Context{"main": {BasePort: 4200}}},
-			"/test/project2": {Contexts: map[string]Context{"main": {BasePort: 4300}}},
+			"/test/project3": {Contexts: map[string]Context{"main": {Created: time.Now()}}},
+			"/test/project1": {Contexts: map[string]Context{"main": {Created: time.Now()}}},
+			"/test/project2": {Contexts: map[string]Context{"main": {Created: time.Now()}}},
 		},
 	}
 
@@ -465,7 +371,7 @@ func TestContextExists(t *testing.T) {
 		Projects: map[string]Project{
 			"/test/project": {
 				Contexts: map[string]Context{
-					"main": {BasePort: 4100},
+					"main": {Created: time.Now()},
 				},
 			},
 		},
@@ -499,8 +405,8 @@ func TestConcurrentAccess(t *testing.T) {
 		go func(idx int) {
 			projectPath := "/test/project"
 			contextName := "feature"
-			basePort := 4100 + (idx * 100)
-			err := registry.SetContext(projectPath, contextName, basePort, "")
+			contextPath := "/test/project/feature"
+			err := registry.SetContext(projectPath, contextName, contextPath)
 			if err != nil {
 				t.Errorf("Concurrent SetContext failed: %v", err)
 			}
@@ -519,25 +425,22 @@ func TestConcurrentAccess(t *testing.T) {
 		t.Fatalf("GetContext failed after concurrent access: %v", err)
 	}
 
-	// Should have one of the base ports (last write wins)
-	if context.BasePort < 4100 || context.BasePort > 5000 {
-		t.Errorf("Unexpected base port after concurrent access: %d", context.BasePort)
+	// Should have the context path
+	if context.Path != "/test/project/feature" {
+		t.Errorf("Unexpected context path after concurrent access: %s", context.Path)
 	}
 }
 
 // TestGetRegistryPath tests registry path generation
 func TestGetRegistryPath(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	projectRoot := "/test/project"
 
-	path, err := GetRegistryPath()
+	path, err := GetRegistryPath(projectRoot)
 	if err != nil {
 		t.Fatalf("GetRegistryPath() failed: %v", err)
 	}
 
-	expected := filepath.Join(tmpDir, ".dual", "registry.json")
+	expected := filepath.Join(projectRoot, ".dual", ".local", "registry.json")
 	if path != expected {
 		t.Errorf("Expected path '%s', got '%s'", expected, path)
 	}
@@ -545,27 +448,23 @@ func TestGetRegistryPath(t *testing.T) {
 
 // TestRegistryJSONFormat validates the JSON format matches the expected schema
 func TestRegistryJSONFormat(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", oldHome)
+	projectRoot := t.TempDir()
 
 	registry := &Registry{
 		Projects: map[string]Project{
 			"/absolute/project/path": {
 				Contexts: map[string]Context{
 					"main": {
-						Created:  time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-						BasePort: 4100,
-						Path:     "/absolute/context/path",
+						Created: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+						Path:    "/absolute/context/path",
 					},
 					"feature": {
-						Created:  time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC),
-						BasePort: 4200,
+						Created: time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC),
 					},
 				},
 			},
 		},
+		projectRoot: projectRoot,
 	}
 
 	// Save registry
@@ -574,7 +473,7 @@ func TestRegistryJSONFormat(t *testing.T) {
 	}
 
 	// Read the raw JSON
-	registryPath, _ := GetRegistryPath()
+	registryPath, _ := GetRegistryPath(projectRoot)
 	data, err := os.ReadFile(registryPath)
 	if err != nil {
 		t.Fatalf("Failed to read registry file: %v", err)
@@ -609,10 +508,6 @@ func TestRegistryJSONFormat(t *testing.T) {
 		t.Fatal("Expected 'main' context")
 	}
 
-	if mainContext["basePort"].(float64) != 4100 {
-		t.Errorf("Expected basePort 4100, got %v", mainContext["basePort"])
-	}
-
 	if mainContext["path"].(string) != "/absolute/context/path" {
 		t.Errorf("Expected path '/absolute/context/path', got %v", mainContext["path"])
 	}
@@ -627,8 +522,8 @@ func TestRegistryJSONFormat(t *testing.T) {
 		t.Fatal("Expected 'feature' context")
 	}
 
-	if featureContext["basePort"].(float64) != 4200 {
-		t.Errorf("Expected basePort 4200, got %v", featureContext["basePort"])
+	if featureContext["created"] == nil {
+		t.Error("Expected 'created' field")
 	}
 
 	// Path should be omitted when empty (omitempty tag)

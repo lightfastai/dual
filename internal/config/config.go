@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/lightfastai/dual/internal/worktree"
 	"gopkg.in/yaml.v3"
@@ -18,15 +19,29 @@ const (
 
 // Config represents the dual.config.yml structure
 type Config struct {
-	Services map[string]Service `yaml:"services"`
-	Version  int                `yaml:"version"`
-	Env      EnvConfig          `yaml:"env,omitempty"`
+	Services  map[string]Service  `yaml:"services"`
+	Version   int                 `yaml:"version"`
+	Env       EnvConfig           `yaml:"env,omitempty"`
+	Worktrees WorktreeConfig      `yaml:"worktrees,omitempty"`
+	Hooks     map[string][]string `yaml:"hooks,omitempty"`
 }
 
 // EnvConfig contains environment-related configuration
 type EnvConfig struct {
 	// BaseFile is the path to the base environment file (relative to project root)
 	BaseFile string `yaml:"baseFile,omitempty"`
+}
+
+// WorktreeConfig contains worktree-related configuration
+type WorktreeConfig struct {
+	// Path is the base directory for worktrees (relative to project root)
+	// Example: "../worktrees" or "worktrees"
+	Path string `yaml:"path,omitempty"`
+
+	// Naming is the pattern for worktree directory names
+	// Supports: "branch" (use branch name as-is), "prefix-{branch}", etc.
+	// Default: "branch"
+	Naming string `yaml:"naming,omitempty"`
 }
 
 // Service represents a single service configuration
@@ -125,6 +140,22 @@ func validateConfig(config *Config, projectRoot string) error {
 		}
 	}
 
+	// Validate worktree configuration if present
+	if config.Worktrees.Path != "" {
+		if filepath.IsAbs(config.Worktrees.Path) {
+			return fmt.Errorf("worktrees.path must be relative to project root, got absolute path: %s", config.Worktrees.Path)
+		}
+		// Note: We don't check if the worktrees directory exists because it may not exist yet
+		// It will be created by the 'dual create' command
+	}
+
+	// Validate hooks if present
+	if len(config.Hooks) > 0 {
+		if err := validateHooks(config.Hooks, projectRoot); err != nil {
+			return fmt.Errorf("hooks: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -172,6 +203,33 @@ func validateService(name string, service Service, projectRoot string) error {
 				return fmt.Errorf("envFile directory does not exist: %s", filepath.Dir(service.EnvFile))
 			}
 			return fmt.Errorf("failed to check envFile directory: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// validateHooks checks that hook definitions are valid
+func validateHooks(hooks map[string][]string, projectRoot string) error {
+	validEvents := map[string]bool{
+		"postWorktreeCreate": true,
+		"preWorktreeDelete":  true,
+		"postWorktreeDelete": true,
+	}
+
+	for event, scripts := range hooks {
+		if !validEvents[event] {
+			return fmt.Errorf("invalid hook event: %s (valid events: postWorktreeCreate, preWorktreeDelete, postWorktreeDelete)", event)
+		}
+
+		for _, script := range scripts {
+			// Hook scripts are relative to .dual/hooks/ directory
+			hookPath := filepath.Join(projectRoot, ".dual", "hooks", script)
+
+			// Check if hook script exists (warning if missing, not error)
+			if _, err := os.Stat(hookPath); os.IsNotExist(err) {
+				fmt.Fprintf(os.Stderr, "[dual] Warning: hook script not found: %s\n", hookPath)
+			}
 		}
 	}
 
@@ -243,4 +301,31 @@ func GetProjectIdentifier(projectRoot string) (string, error) {
 	}
 
 	return normalizedRoot, nil
+}
+
+// GetWorktreePath returns the absolute path to the worktrees directory
+func (c *Config) GetWorktreePath(projectRoot string) string {
+	if c.Worktrees.Path == "" {
+		// Default to ../worktrees if not specified
+		return filepath.Join(filepath.Dir(projectRoot), "worktrees")
+	}
+	return filepath.Join(projectRoot, c.Worktrees.Path)
+}
+
+// GetWorktreeName returns the worktree directory name for a given branch
+func (c *Config) GetWorktreeName(branchName string) string {
+	if c.Worktrees.Naming == "" {
+		// Default to branch name as-is
+		return branchName
+	}
+	// Support simple replacement (future: could support more complex patterns)
+	return strings.ReplaceAll(c.Worktrees.Naming, "{branch}", branchName)
+}
+
+// GetHookScripts returns the list of hook scripts for a given event
+func (c *Config) GetHookScripts(event string) []string {
+	if scripts, exists := c.Hooks[event]; exists {
+		return scripts
+	}
+	return nil
 }

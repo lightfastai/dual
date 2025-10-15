@@ -48,3 +48,13 @@ Thumbs.db
 
 # Node
 node_modules/
+
+# Dual project-local registry (should not be committed)
+# Each project's registry contains port assignments for its contexts
+.dual/registry.json
+.dual/registry.json.lock
+.dual/registry.json.tmp
+
+# Dual auto-generated local files (should not be committed)
+# Service-specific environment files generated from registry overrides
+.dual/.local/

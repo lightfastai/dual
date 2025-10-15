@@ -259,11 +259,12 @@ func (h *TestHelper) AssertOutputNotContains(output, unexpected string) {
 	}
 }
 
-// ReadRegistryJSON reads the registry.json file from the test home
+// ReadRegistryJSON reads the registry.json file from the project directory
 func (h *TestHelper) ReadRegistryJSON() string {
 	h.t.Helper()
 
-	registryPath := filepath.Join(h.TestHome, ".dual", "registry.json")
+	// Registry is now project-local, not in home directory
+	registryPath := filepath.Join(h.ProjectDir, ".dual", ".local", "registry.json")
 	content, err := os.ReadFile(registryPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -279,8 +280,55 @@ func (h *TestHelper) ReadRegistryJSON() string {
 func (h *TestHelper) RegistryExists() bool {
 	h.t.Helper()
 
-	registryPath := filepath.Join(h.TestHome, ".dual", "registry.json")
+	// Registry is now project-local, not in home directory
+	registryPath := filepath.Join(h.ProjectDir, ".dual", ".local", "registry.json")
 	_, err := os.Stat(registryPath)
+	return err == nil
+}
+
+// AssertFileExists checks that a file exists
+func (h *TestHelper) AssertFileExists(relativePath string) {
+	h.t.Helper()
+
+	fullPath := filepath.Join(h.ProjectDir, relativePath)
+	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+		h.t.Fatalf("expected file to exist: %s", relativePath)
+	}
+}
+
+// AssertFileNotExists checks that a file does not exist
+func (h *TestHelper) AssertFileNotExists(relativePath string) {
+	h.t.Helper()
+
+	fullPath := filepath.Join(h.ProjectDir, relativePath)
+	if _, err := os.Stat(fullPath); !os.IsNotExist(err) {
+		if err != nil {
+			h.t.Fatalf("error checking file %s: %v", relativePath, err)
+		} else {
+			h.t.Fatalf("expected file to not exist: %s", relativePath)
+		}
+	}
+}
+
+// ReadFileInDir reads a file from a specific directory (not relative to ProjectDir)
+func (h *TestHelper) ReadFileInDir(dir, relativePath string) string {
+	h.t.Helper()
+
+	fullPath := filepath.Join(dir, relativePath)
+	content, err := os.ReadFile(fullPath)
+	if err != nil {
+		h.t.Fatalf("failed to read file %s: %v", fullPath, err)
+	}
+
+	return string(content)
+}
+
+// FileExistsInDir checks if a file exists in a specific directory
+func (h *TestHelper) FileExistsInDir(dir, relativePath string) bool {
+	h.t.Helper()
+
+	fullPath := filepath.Join(dir, relativePath)
+	_, err := os.Stat(fullPath)
 	return err == nil
 }
 

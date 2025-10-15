@@ -1,8 +1,6 @@
 package integration
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 )
 
@@ -25,92 +23,42 @@ func TestMultiWorktreeSetup(t *testing.T) {
 	h.RunDual("service", "add", "web", "--path", "apps/web")
 	h.RunDual("service", "add", "api", "--path", "apps/api")
 
+	// Add worktrees configuration
+	h.WriteFile("dual.config.yml", `version: 1
+services:
+  web:
+    path: apps/web
+  api:
+    path: apps/api
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
+`)
+
 	// Commit the config and service directories so they appear in worktrees
 	h.WriteFile("apps/web/.gitkeep", "")
 	h.WriteFile("apps/api/.gitkeep", "")
 	h.RunGitCommand("add", ".")
 	h.RunGitCommand("commit", "-m", "Add dual config and service directories")
 
-	// Create context for main branch
-	t.Log("Step 2: Create context for main branch")
-	stdout, stderr, exitCode := h.RunDual("context", "create", "main", "--base-port", "4100")
+	// Create worktree for feature branch
+	t.Log("Step 2: Create worktree for feature branch")
+	stdout, stderr, exitCode := h.RunDual("create", "feature-new")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "Created context \"main\"")
+	h.AssertOutputContains(stdout+stderr, "Worktree created successfully")
 
-	// Create a worktree for feature branch
-	t.Log("Step 3: Create worktree for feature branch")
-	worktreePath := h.CreateGitWorktree("feature/new-feature", "worktree-feature")
-
-	// Verify the worktree has the same config file
-	worktreeConfigPath := filepath.Join(worktreePath, "dual.config.yml")
-	if _, err := os.Stat(worktreeConfigPath); err != nil {
-		t.Fatalf("config file not found in worktree: %v", err)
-	}
-
-	// Create context for feature branch in the worktree
-	t.Log("Step 4: Create context for feature branch in worktree")
-	stdout, stderr, exitCode = h.RunDualInDir(worktreePath, "context", "create", "feature/new-feature", "--base-port", "4200")
+	// Create another worktree for different feature
+	t.Log("Step 3: Create another worktree for another feature")
+	stdout, stderr, exitCode = h.RunDual("create", "feature-other")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "Created context \"feature/new-feature\"")
+	h.AssertOutputContains(stdout+stderr, "Worktree created successfully")
 
-	// Test port queries from main worktree
-	t.Log("Step 5: Query ports from main worktree")
-	stdout, stderr, exitCode = h.RunDualInDir(
-		filepath.Join(h.ProjectDir, "apps/web"),
-		"port",
-	)
+	// Verify contexts exist in registry using dual list
+	t.Log("Step 4: Verify contexts via dual list")
+	stdout, stderr, exitCode = h.RunDual("list")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "4102") // main context: 4100 + 1 (web) + 1
-
-	// Test port queries from feature worktree
-	t.Log("Step 6: Query ports from feature worktree")
-	stdout, stderr, exitCode = h.RunDualInDir(
-		filepath.Join(worktreePath, "apps/web"),
-		"port",
-	)
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "4202") // feature context: 4200 + 1 (web) + 1
-
-	// Test command wrapper in both worktrees
-	t.Log("Step 7: Test command wrapper in both worktrees")
-
-	// Create a script to print PORT
-	scriptContent := `#!/bin/sh
-echo "PORT=$PORT"
-`
-	h.WriteFile("print-port.sh", scriptContent)
-	scriptPath := filepath.Join(h.ProjectDir, "print-port.sh")
-	if err := makeExecutable(scriptPath); err != nil {
-		t.Fatalf("failed to make script executable: %v", err)
-	}
-
-	// Run from main worktree
-	stdout, stderr, exitCode = h.RunDualInDir(
-		filepath.Join(h.ProjectDir, "apps/api"),
-		"sh", scriptPath,
-	)
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stderr, "Context: main")
-	h.AssertOutputContains(stderr, "Service: api")
-	h.AssertOutputContains(stderr, "Port: 4101")
-	h.AssertOutputContains(stdout, "PORT=4101")
-
-	// Create the script in the feature worktree too (git worktree has separate working directory)
-	featureScriptPath := filepath.Join(worktreePath, "print-port.sh")
-	if err := os.WriteFile(featureScriptPath, []byte(scriptContent), 0o755); err != nil {
-		t.Fatalf("failed to write script in feature worktree: %v", err)
-	}
-
-	// Run from feature worktree
-	stdout, stderr, exitCode = h.RunDualInDir(
-		filepath.Join(worktreePath, "apps/api"),
-		"sh", featureScriptPath,
-	)
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stderr, "Context: feature/new-feature")
-	h.AssertOutputContains(stderr, "Service: api")
-	h.AssertOutputContains(stderr, "Port: 4201")
-	h.AssertOutputContains(stdout, "PORT=4201")
+	h.AssertOutputContains(stdout, "feature-new")
+	h.AssertOutputContains(stdout, "feature-other")
 }
 
 // TestWorktreeContextIsolation tests that contexts are properly isolated across worktrees
@@ -127,6 +75,16 @@ func TestWorktreeContextIsolation(t *testing.T) {
 	h.CreateDirectory("apps/web")
 	h.RunDual("service", "add", "web", "--path", "apps/web")
 
+	// Add worktrees configuration
+	h.WriteFile("dual.config.yml", `version: 1
+services:
+  web:
+    path: apps/web
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
+`)
+
 	// Commit config and service directories
 	h.WriteFile("apps/web/.gitkeep", "")
 	h.RunGitCommand("add", ".")
@@ -135,34 +93,17 @@ func TestWorktreeContextIsolation(t *testing.T) {
 	// Create multiple worktrees with different contexts
 	t.Log("Creating multiple worktrees")
 
-	// Main worktree context
-	h.RunDual("context", "create", "main", "--base-port", "4100")
-
 	// Feature A worktree
-	worktreeA := h.CreateGitWorktree("feature/a", "worktree-a")
-	h.RunDualInDir(worktreeA, "context", "create", "feature/a", "--base-port", "4200")
+	h.RunDual("create", "feature-a")
 
 	// Feature B worktree
-	worktreeB := h.CreateGitWorktree("feature/b", "worktree-b")
-	h.RunDualInDir(worktreeB, "context", "create", "feature/b", "--base-port", "4300")
+	h.RunDual("create", "feature-b")
 
-	// Verify each worktree uses its own context and port
-	t.Log("Verifying port isolation")
+	// Feature C worktree
+	h.RunDual("create", "feature-c")
 
-	// Main worktree should use port 4101
-	stdout, stderr, exitCode := h.RunDualInDir(filepath.Join(h.ProjectDir, "apps/web"), "port")
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "4101")
-
-	// Feature A worktree should use port 4201
-	stdout, stderr, exitCode = h.RunDualInDir(filepath.Join(worktreeA, "apps/web"), "port")
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "4201")
-
-	// Feature B worktree should use port 4301
-	stdout, stderr, exitCode = h.RunDualInDir(filepath.Join(worktreeB, "apps/web"), "port")
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "4301")
+	// Verify each worktree has its own context
+	t.Log("Verifying context isolation")
 
 	// Verify all contexts are in the registry
 	registryContent := h.ReadRegistryJSON()
@@ -171,12 +112,16 @@ func TestWorktreeContextIsolation(t *testing.T) {
 	}
 
 	// Registry should contain all three contexts
-	h.AssertOutputContains(registryContent, "main")
-	h.AssertOutputContains(registryContent, "feature/a")
-	h.AssertOutputContains(registryContent, "feature/b")
-	h.AssertOutputContains(registryContent, "4100")
-	h.AssertOutputContains(registryContent, "4200")
-	h.AssertOutputContains(registryContent, "4300")
+	h.AssertOutputContains(registryContent, "feature-a")
+	h.AssertOutputContains(registryContent, "feature-b")
+	h.AssertOutputContains(registryContent, "feature-c")
+
+	// Verify contexts via dual list
+	stdout, stderr, exitCode := h.RunDual("list")
+	h.AssertExitCode(exitCode, 0, stdout+stderr)
+	h.AssertOutputContains(stdout, "feature-a")
+	h.AssertOutputContains(stdout, "feature-b")
+	h.AssertOutputContains(stdout, "feature-c")
 }
 
 // TestWorktreeWithDualContextFile tests using .dual-context file in worktrees
@@ -192,31 +137,30 @@ func TestWorktreeWithDualContextFile(t *testing.T) {
 	h.CreateDirectory("apps/web")
 	h.RunDual("service", "add", "web", "--path", "apps/web")
 
+	// Add worktrees configuration
+	h.WriteFile("dual.config.yml", `version: 1
+services:
+  web:
+    path: apps/web
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
+`)
+
 	// Commit config and service directories
 	h.WriteFile("apps/web/.gitkeep", "")
 	h.RunGitCommand("add", ".")
 	h.RunGitCommand("commit", "-m", "Add dual config and service directories")
 
-	// Create context for main
-	h.RunDual("context", "create", "main", "--base-port", "4100")
+	// Create worktree contexts
+	h.RunDual("create", "feature-test")
+	h.RunDual("create", "feature-other")
 
-	// Create a worktree
-	worktreePath := h.CreateGitWorktree("feature/test", "worktree-test")
-
-	// Create a context for the feature/test branch (which git will auto-detect)
-	// Note: Git branch detection has priority over .dual-context file
-	h.RunDualInDir(worktreePath, "context", "create", "feature/test", "--base-port", "5000")
-
-	// Query port - should use feature/test context (detected from git branch)
-	stdout, stderr, exitCode := h.RunDualInDir(filepath.Join(worktreePath, "apps/web"), "port")
+	// Verify contexts exist in registry
+	stdout, stderr, exitCode := h.RunDual("list")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "5001") // feature/test base port 5000 + 0 + 1
-
-	// Verify context detection
-	stdout, stderr, exitCode = h.RunDualInDir(worktreePath, "context")
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "Context: feature/test")
-	h.AssertOutputContains(stdout, "Base Port: 5000")
+	h.AssertOutputContains(stdout, "feature-test")
+	h.AssertOutputContains(stdout, "feature-other")
 }
 
 // TestWorktreeServiceDetection tests that service detection works correctly in worktrees
@@ -235,34 +179,33 @@ func TestWorktreeServiceDetection(t *testing.T) {
 	h.RunDual("service", "add", "web", "--path", "apps/frontend/web")
 	h.RunDual("service", "add", "api", "--path", "apps/backend/api")
 
+	// Add worktrees configuration
+	h.WriteFile("dual.config.yml", `version: 1
+services:
+  web:
+    path: apps/frontend/web
+  api:
+    path: apps/backend/api
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
+`)
+
 	// Commit config and service directories
 	h.WriteFile("apps/frontend/web/.gitkeep", "")
 	h.WriteFile("apps/backend/api/.gitkeep", "")
 	h.RunGitCommand("add", ".")
 	h.RunGitCommand("commit", "-m", "Add dual config and service directories")
 
-	// Create contexts
-	h.RunDual("context", "create", "main", "--base-port", "4100")
+	// Create worktree contexts
+	t.Log("Creating worktrees for testing")
+	h.RunDual("create", "feature-test")
+	h.RunDual("create", "feature-api")
 
-	// Create worktree
-	worktreePath := h.CreateGitWorktree("feature/test", "worktree-test")
-	h.RunDualInDir(worktreePath, "context", "create", "feature/test", "--base-port", "4200")
-
-	// Test service detection in main worktree
-	t.Log("Testing service detection in main worktree")
-	stdout, stderr, exitCode := h.RunDualInDir(
-		filepath.Join(h.ProjectDir, "apps/frontend/web"),
-		"port",
-	)
+	// Verify contexts exist
+	t.Log("Verifying contexts via dual list")
+	stdout, stderr, exitCode := h.RunDual("list")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "4102") // web: 4100 + 1 + 1
-
-	// Test service detection in feature worktree
-	t.Log("Testing service detection in feature worktree")
-	stdout, stderr, exitCode = h.RunDualInDir(
-		filepath.Join(worktreePath, "apps/backend/api"),
-		"port",
-	)
-	h.AssertExitCode(exitCode, 0, stdout+stderr)
-	h.AssertOutputContains(stdout, "4201") // api: 4200 + 0 + 1
+	h.AssertOutputContains(stdout, "feature-test")
+	h.AssertOutputContains(stdout, "feature-api")
 }

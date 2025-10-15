@@ -32,6 +32,7 @@ func NewDetector() *Detector {
 
 // IsWorktree checks if the given directory is a git worktree
 // A worktree has a .git file (not directory) pointing to the parent repository
+// This distinguishes from git submodules, which also have a .git file but with different content
 func (d *Detector) IsWorktree(dir string) (bool, error) {
 	gitPath := filepath.Join(dir, ".git")
 
@@ -45,8 +46,30 @@ func (d *Detector) IsWorktree(dir string) (bool, error) {
 		return false, fmt.Errorf("failed to stat .git: %w", err)
 	}
 
-	// Worktrees have .git as a file, not a directory
-	return !info.IsDir(), nil
+	// If .git is a directory, it's a normal repo, not a worktree
+	if info.IsDir() {
+		return false, nil
+	}
+
+	// .git is a file - could be a worktree or submodule
+	// Read the file to distinguish between them
+	content, err := d.readFile(gitPath)
+	if err != nil {
+		return false, fmt.Errorf("failed to read .git file: %w", err)
+	}
+
+	line := strings.TrimSpace(string(content))
+	if !strings.HasPrefix(line, "gitdir: ") {
+		return false, nil
+	}
+
+	// Extract the gitdir path
+	gitdir := strings.TrimPrefix(line, "gitdir: ")
+
+	// Worktrees point to .git/worktrees/<name>
+	// Submodules point to ../.git/modules/<name> or similar
+	// Check if the gitdir contains "/worktrees/"
+	return strings.Contains(gitdir, "/worktrees/") || strings.Contains(gitdir, "\\worktrees\\"), nil
 }
 
 // GetParentRepo returns the path to the parent repository for a worktree
@@ -77,13 +100,28 @@ func (d *Detector) GetParentRepo(worktreeDir string) (string, error) {
 	// Extract the gitdir path
 	gitdir := strings.TrimPrefix(line, "gitdir: ")
 
-	// The parent repo is three directories up from the gitdir
-	// e.g., /home/user/project/.git/worktrees/name → /home/user/project
-	// gitdir: /home/user/project/.git/worktrees/name
-	// parent of gitdir: /home/user/project/.git/worktrees
-	// parent of parent: /home/user/project/.git
-	// parent of that: /home/user/project
-	parentRepo := filepath.Dir(filepath.Dir(filepath.Dir(gitdir)))
+	// Use git rev-parse to find the parent repo's toplevel
+	// The gitdir points to something like: /path/to/repo/.git/worktrees/name
+	// or for submodules: /path/to/parent/.git/modules/submodule/worktrees/name
+	//
+	// The common-dir (parent of gitdir) is the .git directory that knows about the repo
+	// Using git rev-parse --show-toplevel on that location gives us the working tree root
+	commonDir := filepath.Dir(gitdir)
+
+	// Run git command to get the toplevel directory
+	cmd := exec.Command("git", "-C", commonDir, "rev-parse", "--show-toplevel")
+	output, err := cmd.Output()
+	if err != nil {
+		// Fallback to old behavior (three directories up) if git command fails
+		parentRepo := filepath.Dir(filepath.Dir(filepath.Dir(gitdir)))
+		resolved, err := d.evalSymlinks(parentRepo)
+		if err != nil {
+			return parentRepo, nil
+		}
+		return resolved, nil
+	}
+
+	parentRepo := strings.TrimSpace(string(output))
 
 	// Validate the parent repo exists
 	if _, err := d.stat(parentRepo); err != nil {
