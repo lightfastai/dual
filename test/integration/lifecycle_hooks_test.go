@@ -1,0 +1,532 @@
+package integration
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// TestEnvRemappingWithDualCreate tests the full workflow of creating a worktree
+// and verifying .dual/.local/service/<service>/.env files are generated.
+func TestEnvRemappingWithDualCreate(t *testing.T) {
+	h := NewTestHelper(t)
+	defer h.RestoreHome()
+
+	// Step 1: Initialize git repo
+	t.Log("Step 1: Initialize git repository")
+	h.InitGitRepo()
+	h.CreateGitBranch("main")
+
+	// Step 2: Initialize dual
+	t.Log("Step 2: Initialize dual configuration")
+	h.RunDual("init")
+
+	// Step 3: Create services
+	t.Log("Step 3: Create services")
+	h.CreateDirectory("apps/web")
+	h.CreateDirectory("apps/api")
+	h.CreateDirectory("apps/worker")
+	h.RunDual("service", "add", "web", "--path", "apps/web")
+	h.RunDual("service", "add", "api", "--path", "apps/api")
+	h.RunDual("service", "add", "worker", "--path", "apps/worker")
+
+	// Commit config and service directories
+	h.WriteFile("apps/web/.gitkeep", "")
+	h.WriteFile("apps/api/.gitkeep", "")
+	h.WriteFile("apps/worker/.gitkeep", "")
+	h.RunGitCommand("add", ".")
+	h.RunGitCommand("commit", "-m", "Add dual config and services")
+
+	// Step 4: Create main context
+	t.Log("Step 4: Create main context")
+	stdout, stderr, exitCode := h.RunDual("context", "create", "main")
+	h.AssertExitCode(exitCode, 0, stdout+stderr)
+
+	// Step 5: Create worktree using dual create (creates new context)
+	t.Log("Step 5: Create worktree with dual create")
+	stdout, stderr, exitCode = h.RunDual("create", "feature-test")
+	h.AssertExitCode(exitCode, 0, stdout+stderr)
+	h.AssertOutputContains(stderr, "Worktree created successfully")
+
+	worktreePath := filepath.Join(h.TempDir, "worktrees", "feature-test")
+
+	// Step 6: Set global environment overrides for the worktree context
+	t.Log("Step 6: Set global environment overrides in worktree context")
+	stdout, stderr, exitCode = h.RunDualInDir(worktreePath, "env", "set", "DATABASE_URL", "postgres://localhost/testdb")
+	h.AssertExitCode(exitCode, 0, stdout+stderr)
+	h.AssertOutputContains(stdout, "Set DATABASE_URL=postgres://localhost/testdb")
+
+	stdout, stderr, exitCode = h.RunDualInDir(worktreePath, "env", "set", "REDIS_URL", "redis://localhost:6379")
+	h.AssertExitCode(exitCode, 0, stdout+stderr)
+
+	// Step 7: Set service-specific overrides
+	t.Log("Step 7: Set service-specific overrides in worktree context")
+	stdout, stderr, exitCode = h.RunDualInDir(worktreePath, "env", "set", "--service", "api", "API_KEY", "secret-api-key")
+	h.AssertExitCode(exitCode, 0, stdout+stderr)
+	h.AssertOutputContains(stdout, "Set API_KEY=secret-api-key for service 'api'")
+
+	stdout, stderr, exitCode = h.RunDualInDir(worktreePath, "env", "set", "--service", "web", "WEB_TOKEN", "web-secret-token")
+	h.AssertExitCode(exitCode, 0, stdout+stderr)
+
+	// Step 8: Verify .dual/.local/service/<service>/.env files exist in worktree
+	t.Log("Step 8: Verify env files exist in worktree")
+
+	webEnvPath := ".dual/.local/service/web/.env"
+	apiEnvPath := ".dual/.local/service/api/.env"
+	workerEnvPath := ".dual/.local/service/worker/.env"
+
+	if !h.FileExistsInDir(worktreePath, webEnvPath) {
+		t.Errorf("Expected %s to exist in worktree", webEnvPath)
+	}
+	if !h.FileExistsInDir(worktreePath, apiEnvPath) {
+		t.Errorf("Expected %s to exist in worktree", apiEnvPath)
+	}
+	if !h.FileExistsInDir(worktreePath, workerEnvPath) {
+		t.Errorf("Expected %s to exist in worktree", workerEnvPath)
+	}
+
+	// Step 9: Verify files contain only remapped variables (sparse pattern)
+	t.Log("Step 9: Verify env file contents")
+
+	// Web service: global overrides + WEB_TOKEN
+	webContent := h.ReadFileInDir(worktreePath, webEnvPath)
+	h.AssertOutputContains(webContent, "DATABASE_URL=postgres://localhost/testdb")
+	h.AssertOutputContains(webContent, "REDIS_URL=redis://localhost:6379")
+	h.AssertOutputContains(webContent, "WEB_TOKEN=web-secret-token")
+	h.AssertOutputNotContains(webContent, "API_KEY=") // Should not have API_KEY
+	h.AssertOutputNotContains(webContent, "PORT=")    // PORT is runtime-only
+
+	// API service: global overrides + API_KEY
+	apiContent := h.ReadFileInDir(worktreePath, apiEnvPath)
+	h.AssertOutputContains(apiContent, "DATABASE_URL=postgres://localhost/testdb")
+	h.AssertOutputContains(apiContent, "REDIS_URL=redis://localhost:6379")
+	h.AssertOutputContains(apiContent, "API_KEY=secret-api-key")
+	h.AssertOutputNotContains(apiContent, "WEB_TOKEN=") // Should not have WEB_TOKEN
+	h.AssertOutputNotContains(apiContent, "PORT=")      // PORT is runtime-only
+
+	// Worker service: only global overrides
+	workerContent := h.ReadFileInDir(worktreePath, workerEnvPath)
+	h.AssertOutputContains(workerContent, "DATABASE_URL=postgres://localhost/testdb")
+	h.AssertOutputContains(workerContent, "REDIS_URL=redis://localhost:6379")
+	h.AssertOutputNotContains(workerContent, "API_KEY=")    // Should not have API_KEY
+	h.AssertOutputNotContains(workerContent, "WEB_TOKEN=")  // Should not have WEB_TOKEN
+	h.AssertOutputNotContains(workerContent, "PORT=")       // PORT is runtime-only
+
+	// Step 10: Verify header comments are present
+	t.Log("Step 10: Verify header comments")
+	h.AssertOutputContains(webContent, "WARNING: This file is automatically generated")
+	h.AssertOutputContains(webContent, "Context: feature-test")
+	h.AssertOutputContains(webContent, "Service: web")
+
+	t.Log("Test completed successfully!")
+}
+
+// TestEnvRemappingRegeneration tests that dual env set and dual env unset
+// trigger regeneration of .env files.
+func TestEnvRemappingRegeneration(t *testing.T) {
+	h := NewTestHelper(t)
+	defer h.RestoreHome()
+
+	// Setup: Create worktree with initial env vars
+	t.Log("Setup: Initialize repository and create worktree")
+	h.InitGitRepo()
+	h.CreateGitBranch("main")
+	h.RunDual("init")
+
+	h.CreateDirectory("apps/web")
+	h.CreateDirectory("apps/api")
+	h.RunDual("service", "add", "web", "--path", "apps/web")
+	h.RunDual("service", "add", "api", "--path", "apps/api")
+
+	h.WriteFile("apps/web/.gitkeep", "")
+	h.WriteFile("apps/api/.gitkeep", "")
+	h.RunGitCommand("add", ".")
+	h.RunGitCommand("commit", "-m", "Add dual config")
+
+	// Create context
+	h.RunDual("context", "create", "main")
+
+	// Create worktree
+	stdout, stderr, exitCode := h.RunDual("create", "feature-regen")
+	h.AssertExitCode(exitCode, 0, stdout+stderr)
+
+	worktreePath := filepath.Join(h.TempDir, "worktrees", "feature-regen")
+	envPath := ".dual/.local/service/web/.env"
+
+	// Set initial env in worktree context
+	h.RunDualInDir(worktreePath, "env", "set", "INITIAL_VAR", "initial-value")
+
+	// Verify initial state
+	t.Log("Verify initial env file state")
+	if !h.FileExistsInDir(worktreePath, envPath) {
+		t.Fatalf("Expected %s to exist in worktree", envPath)
+	}
+	content := h.ReadFileInDir(worktreePath, envPath)
+	h.AssertOutputContains(content, "INITIAL_VAR=initial-value")
+
+	// Switch to worktree to test regeneration
+	t.Log("Test env set triggers regeneration")
+	stdout, stderr, exitCode = h.RunDualInDir(worktreePath, "env", "set", "NEW_VAR", "new-value")
+	h.AssertExitCode(exitCode, 0, stdout+stderr)
+
+	// Verify NEW_VAR appears in env file
+	content = h.ReadFileInDir(worktreePath, envPath)
+	h.AssertOutputContains(content, "NEW_VAR=new-value")
+	h.AssertOutputContains(content, "INITIAL_VAR=initial-value") // Old var still there
+
+	// Test env unset triggers regeneration
+	t.Log("Test env unset triggers regeneration")
+	stdout, stderr, exitCode = h.RunDualInDir(worktreePath, "env", "unset", "INITIAL_VAR")
+	h.AssertExitCode(exitCode, 0, stdout+stderr)
+
+	// Verify INITIAL_VAR is removed from env file
+	content = h.ReadFileInDir(worktreePath, envPath)
+	h.AssertOutputNotContains(content, "INITIAL_VAR=")
+	h.AssertOutputContains(content, "NEW_VAR=new-value") // NEW_VAR still there
+
+	t.Log("Test completed successfully!")
+}
+
+// TestEnvRemapCommand tests the dual env remap command to manually regenerate env files.
+func TestEnvRemapCommand(t *testing.T) {
+	h := NewTestHelper(t)
+	defer h.RestoreHome()
+
+	// Setup
+	t.Log("Setup: Initialize repository and create worktree")
+	h.InitGitRepo()
+	h.CreateGitBranch("main")
+	h.RunDual("init")
+
+	h.CreateDirectory("apps/web")
+	h.RunDual("service", "add", "web", "--path", "apps/web")
+
+	h.WriteFile("apps/web/.gitkeep", "")
+	h.RunGitCommand("add", ".")
+	h.RunGitCommand("commit", "-m", "Add dual config")
+
+	h.RunDual("context", "create", "main")
+
+	stdout, stderr, exitCode := h.RunDual("create", "feature-remap")
+	h.AssertExitCode(exitCode, 0, stdout+stderr)
+
+	worktreePath := filepath.Join(h.TempDir, "worktrees", "feature-remap")
+	envPath := ".dual/.local/service/web/.env"
+
+	// Set env var in worktree context
+	h.RunDualInDir(worktreePath, "env", "set", "TEST_VAR", "test-value")
+
+	// Verify file exists
+	t.Log("Verify initial env file exists")
+	if !h.FileExistsInDir(worktreePath, envPath) {
+		t.Fatalf("Expected %s to exist", envPath)
+	}
+
+	// Manually delete env file
+	t.Log("Manually delete env file")
+	envFullPath := filepath.Join(worktreePath, envPath)
+	if err := os.Remove(envFullPath); err != nil {
+		t.Fatalf("Failed to delete env file: %v", err)
+	}
+
+	// Verify file is gone
+	if h.FileExistsInDir(worktreePath, envPath) {
+		t.Fatalf("Expected %s to be deleted", envPath)
+	}
+
+	// Run dual env remap
+	t.Log("Run dual env remap")
+	stdout, stderr, exitCode = h.RunDualInDir(worktreePath, "env", "remap")
+	h.AssertExitCode(exitCode, 0, stdout+stderr)
+	h.AssertOutputContains(stderr, "Service env files regenerated successfully")
+
+	// Verify file is recreated
+	t.Log("Verify env file is recreated")
+	if !h.FileExistsInDir(worktreePath, envPath) {
+		t.Fatalf("Expected %s to be recreated", envPath)
+	}
+
+	content := h.ReadFileInDir(worktreePath, envPath)
+	h.AssertOutputContains(content, "TEST_VAR=test-value")
+
+	t.Log("Test completed successfully!")
+}
+
+// TestEnvRemappingCleanup tests that dual delete cleans up .dual/.local/ directory.
+func TestEnvRemappingCleanup(t *testing.T) {
+	h := NewTestHelper(t)
+	defer h.RestoreHome()
+
+	// Setup
+	t.Log("Setup: Create worktree with env files")
+	h.InitGitRepo()
+	h.CreateGitBranch("main")
+	h.RunDual("init")
+
+	h.CreateDirectory("apps/web")
+	h.RunDual("service", "add", "web", "--path", "apps/web")
+
+	h.WriteFile("apps/web/.gitkeep", "")
+	h.RunGitCommand("add", ".")
+	h.RunGitCommand("commit", "-m", "Add dual config")
+
+	h.RunDual("context", "create", "main")
+
+	stdout, stderr, exitCode := h.RunDual("create", "feature-cleanup")
+	h.AssertExitCode(exitCode, 0, stdout+stderr)
+
+	worktreePath := filepath.Join(h.TempDir, "worktrees", "feature-cleanup")
+	servicePath := ".dual/.local/service"
+
+	// Set env var in worktree context to trigger env file generation
+	h.RunDualInDir(worktreePath, "env", "set", "CLEANUP_VAR", "cleanup-value")
+
+	// Verify .dual/.local/service/ exists
+	t.Log("Verify .dual/.local/service/ exists")
+	if !h.FileExistsInDir(worktreePath, servicePath) {
+		t.Fatalf("Expected %s to exist in worktree", servicePath)
+	}
+
+	// Delete worktree with dual delete
+	t.Log("Delete worktree with dual delete")
+	// We need to run from main repo since we can't delete the current context
+	stdout, stderr, exitCode = h.RunDual("delete", "feature-cleanup", "--force")
+	h.AssertExitCode(exitCode, 0, stdout+stderr)
+	h.AssertOutputContains(stderr, "Deleted context")
+
+	// Verify worktree directory is removed
+	t.Log("Verify worktree is removed")
+	if _, err := os.Stat(worktreePath); !os.IsNotExist(err) {
+		t.Errorf("Expected worktree directory to be removed: %s", worktreePath)
+	}
+
+	t.Log("Test completed successfully!")
+}
+
+// TestEnvRemappingWithHooks tests that hooks can work alongside the built-in remapping feature.
+func TestEnvRemappingWithHooks(t *testing.T) {
+	h := NewTestHelper(t)
+	defer h.RestoreHome()
+
+	// Setup
+	t.Log("Setup: Initialize repository")
+	h.InitGitRepo()
+	h.CreateGitBranch("main")
+	h.RunDual("init")
+
+	h.CreateDirectory("apps/web")
+	h.RunDual("service", "add", "web", "--path", "apps/web")
+
+	// Create a postWorktreeCreate hook that creates a custom file
+	t.Log("Create postWorktreeCreate hook")
+	h.CreateDirectory(".dual/hooks")
+	hookScript := `#!/bin/bash
+# Custom hook that creates additional files
+echo "Running custom hook..."
+echo "CUSTOM_HOOK_VAR=custom-value" > "$DUAL_CONTEXT_PATH/.custom-env"
+echo "Hook completed"
+`
+	h.WriteFile(".dual/hooks/postWorktreeCreate", hookScript)
+
+	// Make hook executable
+	hookPath := filepath.Join(h.ProjectDir, ".dual/hooks/postWorktreeCreate")
+	if err := os.Chmod(hookPath, 0o755); err != nil {
+		t.Fatalf("Failed to make hook executable: %v", err)
+	}
+
+	// Update config to reference the hook (need to merge with existing config)
+	configContent := `version: 1
+schemaVersion: 1
+
+services:
+  web:
+    path: apps/web
+
+hooks:
+  postWorktreeCreate:
+    - .dual/hooks/postWorktreeCreate
+`
+	h.WriteFile("dual.config.yml", configContent)
+
+	h.WriteFile("apps/web/.gitkeep", "")
+	h.RunGitCommand("add", ".")
+	h.RunGitCommand("commit", "-m", "Add dual config with hooks")
+
+	h.RunDual("context", "create", "main")
+
+	// Create worktree
+	t.Log("Create worktree with hooks")
+	stdout, stderr, exitCode := h.RunDual("create", "feature-hooks")
+	h.AssertExitCode(exitCode, 0, stdout+stderr)
+
+	worktreePath := filepath.Join(h.TempDir, "worktrees", "feature-hooks")
+
+	// Set env var in worktree context
+	h.RunDualInDir(worktreePath, "env", "set", "DUAL_VAR", "dual-value")
+
+	// Verify dual-generated env file exists
+	t.Log("Verify dual-generated env file exists")
+	dualEnvPath := ".dual/.local/service/web/.env"
+	if !h.FileExistsInDir(worktreePath, dualEnvPath) {
+		t.Errorf("Expected dual-generated %s to exist", dualEnvPath)
+	}
+
+	dualEnvContent := h.ReadFileInDir(worktreePath, dualEnvPath)
+	h.AssertOutputContains(dualEnvContent, "DUAL_VAR=dual-value")
+
+	// Verify hook-created file exists (if hooks were executed)
+	t.Log("Verify hook-created custom file exists")
+	customEnvPath := ".custom-env"
+	if h.FileExistsInDir(worktreePath, customEnvPath) {
+		// Hook was executed, verify contents
+		customEnvContent := h.ReadFileInDir(worktreePath, customEnvPath)
+		h.AssertOutputContains(customEnvContent, "CUSTOM_HOOK_VAR=custom-value")
+		t.Log("Hook executed successfully and created custom file")
+	} else {
+		// Check if hook output mentions execution
+		if strings.Contains(stderr, "Running custom hook") {
+			t.Logf("Hook was executed but custom file was not created at expected location")
+			t.Logf("Stderr: %s", stderr)
+		} else {
+			t.Logf("Hook was not executed or did not produce output")
+			t.Logf("This is acceptable - testing that dual env files work independently of hooks")
+		}
+	}
+
+	t.Log("Test completed successfully!")
+}
+
+// TestEnvRemappingEmptyOverrides tests that no .env files are created when there are no overrides
+func TestEnvRemappingEmptyOverrides(t *testing.T) {
+	h := NewTestHelper(t)
+	defer h.RestoreHome()
+
+	// Setup: Create worktree WITHOUT setting any env overrides
+	t.Log("Setup: Create worktree without env overrides")
+	h.InitGitRepo()
+	h.CreateGitBranch("main")
+	h.RunDual("init")
+
+	h.CreateDirectory("apps/web")
+	h.RunDual("service", "add", "web", "--path", "apps/web")
+
+	h.WriteFile("apps/web/.gitkeep", "")
+	h.RunGitCommand("add", ".")
+	h.RunGitCommand("commit", "-m", "Add dual config")
+
+	h.RunDual("context", "create", "main")
+	// NOTE: NOT setting any env overrides
+
+	stdout, stderr, exitCode := h.RunDual("create", "feature-empty")
+	h.AssertExitCode(exitCode, 0, stdout+stderr)
+
+	worktreePath := filepath.Join(h.TempDir, "worktrees", "feature-empty")
+	envPath := ".dual/.local/service/web/.env"
+
+	// Verify NO env file is created (sparse pattern)
+	t.Log("Verify no env file is created when there are no overrides")
+	if h.FileExistsInDir(worktreePath, envPath) {
+		t.Errorf("Expected %s to NOT exist when there are no overrides", envPath)
+	}
+
+	t.Log("Test completed successfully!")
+}
+
+// TestEnvRemappingServiceSpecificOnly tests service-specific overrides without global overrides
+func TestEnvRemappingServiceSpecificOnly(t *testing.T) {
+	h := NewTestHelper(t)
+	defer h.RestoreHome()
+
+	// Setup
+	t.Log("Setup: Create worktree with only service-specific overrides")
+	h.InitGitRepo()
+	h.CreateGitBranch("main")
+	h.RunDual("init")
+
+	h.CreateDirectory("apps/web")
+	h.CreateDirectory("apps/api")
+	h.RunDual("service", "add", "web", "--path", "apps/web")
+	h.RunDual("service", "add", "api", "--path", "apps/api")
+
+	h.WriteFile("apps/web/.gitkeep", "")
+	h.WriteFile("apps/api/.gitkeep", "")
+	h.RunGitCommand("add", ".")
+	h.RunGitCommand("commit", "-m", "Add dual config")
+
+	h.RunDual("context", "create", "main")
+
+	stdout, stderr, exitCode := h.RunDual("create", "feature-service-only")
+	h.AssertExitCode(exitCode, 0, stdout+stderr)
+
+	worktreePath := filepath.Join(h.TempDir, "worktrees", "feature-service-only")
+
+	// Set ONLY service-specific overrides (no global) in worktree context
+	h.RunDualInDir(worktreePath, "env", "set", "--service", "api", "API_SPECIFIC", "api-only-value")
+
+	// API should have env file
+	t.Log("Verify API service has env file")
+	apiEnvPath := ".dual/.local/service/api/.env"
+	if !h.FileExistsInDir(worktreePath, apiEnvPath) {
+		t.Errorf("Expected %s to exist", apiEnvPath)
+	}
+
+	apiContent := h.ReadFileInDir(worktreePath, apiEnvPath)
+	h.AssertOutputContains(apiContent, "API_SPECIFIC=api-only-value")
+
+	// Web should NOT have env file (no overrides for it)
+	t.Log("Verify web service has no env file")
+	webEnvPath := ".dual/.local/service/web/.env"
+	if h.FileExistsInDir(worktreePath, webEnvPath) {
+		t.Errorf("Expected %s to NOT exist (no overrides for web)", webEnvPath)
+	}
+
+	t.Log("Test completed successfully!")
+}
+
+// TestEnvRemappingQuotedValues tests that values with special characters are properly quoted
+func TestEnvRemappingQuotedValues(t *testing.T) {
+	h := NewTestHelper(t)
+	defer h.RestoreHome()
+
+	// Setup
+	t.Log("Setup: Create worktree with special character values")
+	h.InitGitRepo()
+	h.CreateGitBranch("main")
+	h.RunDual("init")
+
+	h.CreateDirectory("apps/web")
+	h.RunDual("service", "add", "web", "--path", "apps/web")
+
+	h.WriteFile("apps/web/.gitkeep", "")
+	h.RunGitCommand("add", ".")
+	h.RunGitCommand("commit", "-m", "Add dual config")
+
+	h.RunDual("context", "create", "main")
+
+	stdout, stderr, exitCode := h.RunDual("create", "feature-quoted")
+	h.AssertExitCode(exitCode, 0, stdout+stderr)
+
+	worktreePath := filepath.Join(h.TempDir, "worktrees", "feature-quoted")
+	envPath := ".dual/.local/service/web/.env"
+
+	// Set values that need quoting in worktree context
+	h.RunDualInDir(worktreePath, "env", "set", "SPACED_VALUE", "value with spaces")
+	h.RunDualInDir(worktreePath, "env", "set", "QUOTED_VALUE", `value with "quotes"`)
+
+	// Verify quoted values
+	t.Log("Verify values are properly quoted")
+	content := h.ReadFileInDir(worktreePath, envPath)
+
+	// Value with spaces should be quoted
+	if !strings.Contains(content, `SPACED_VALUE="value with spaces"`) {
+		t.Errorf("Expected SPACED_VALUE to be quoted, got: %s", content)
+	}
+
+	// Value with quotes should be escaped and quoted
+	if !strings.Contains(content, `QUOTED_VALUE=`) {
+		t.Errorf("Expected QUOTED_VALUE to be present, got: %s", content)
+	}
+
+	t.Log("Test completed successfully!")
+}

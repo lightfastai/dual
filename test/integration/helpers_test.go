@@ -286,6 +286,52 @@ func (h *TestHelper) RegistryExists() bool {
 	return err == nil
 }
 
+// AssertFileExists checks that a file exists
+func (h *TestHelper) AssertFileExists(relativePath string) {
+	h.t.Helper()
+
+	fullPath := filepath.Join(h.ProjectDir, relativePath)
+	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+		h.t.Fatalf("expected file to exist: %s", relativePath)
+	}
+}
+
+// AssertFileNotExists checks that a file does not exist
+func (h *TestHelper) AssertFileNotExists(relativePath string) {
+	h.t.Helper()
+
+	fullPath := filepath.Join(h.ProjectDir, relativePath)
+	if _, err := os.Stat(fullPath); !os.IsNotExist(err) {
+		if err != nil {
+			h.t.Fatalf("error checking file %s: %v", relativePath, err)
+		} else {
+			h.t.Fatalf("expected file to not exist: %s", relativePath)
+		}
+	}
+}
+
+// ReadFileInDir reads a file from a specific directory (not relative to ProjectDir)
+func (h *TestHelper) ReadFileInDir(dir, relativePath string) string {
+	h.t.Helper()
+
+	fullPath := filepath.Join(dir, relativePath)
+	content, err := os.ReadFile(fullPath)
+	if err != nil {
+		h.t.Fatalf("failed to read file %s: %v", fullPath, err)
+	}
+
+	return string(content)
+}
+
+// FileExistsInDir checks if a file exists in a specific directory
+func (h *TestHelper) FileExistsInDir(dir, relativePath string) bool {
+	h.t.Helper()
+
+	fullPath := filepath.Join(dir, relativePath)
+	_, err := os.Stat(fullPath)
+	return err == nil
+}
+
 // buildDualBinary builds the dual binary to the specified path
 func buildDualBinary(t *testing.T, outputPath string) error {
 	t.Helper()
