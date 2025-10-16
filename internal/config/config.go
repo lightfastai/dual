@@ -350,20 +350,14 @@ func validateService(name string, service Service, projectRoot string) error {
 		return dualErr
 	}
 
-	// EnvFile is optional, but if provided, validate the directory exists
+	// EnvFile is optional, but if provided, validate it's a relative path
+	// Note: We don't validate that the file or directory exists because:
+	// - Files may not exist yet (fresh worktrees, gitignored directories)
+	// - The env layer gracefully handles missing files by returning empty maps
+	// - Validation happens at runtime via 'dual doctor' or 'dual env check'
 	if service.EnvFile != "" {
 		if filepath.IsAbs(service.EnvFile) {
 			return fmt.Errorf("envFile must be relative to project root, got absolute path: %s", service.EnvFile)
-		}
-
-		// Check if the directory containing the env file exists
-		envFileFullPath := filepath.Join(projectRoot, service.EnvFile)
-		envFileDir := filepath.Dir(envFileFullPath)
-		if _, err := os.Stat(envFileDir); err != nil {
-			if os.IsNotExist(err) {
-				return fmt.Errorf("envFile directory does not exist: %s", filepath.Dir(service.EnvFile))
-			}
-			return fmt.Errorf("failed to check envFile directory: %w", err)
 		}
 	}
 

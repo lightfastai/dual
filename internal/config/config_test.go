@@ -255,13 +255,12 @@ func TestValidateService(t *testing.T) {
 			errMsg:  "envFile must be relative",
 		},
 		{
-			name: "envFile with non-existent directory",
+			name: "envFile with non-existent directory (allowed)",
 			service: Service{
 				Path:    "valid",
 				EnvFile: "nonexistent/.env",
 			},
-			wantErr: true,
-			errMsg:  "envFile directory does not exist",
+			wantErr: false, // Missing env files/directories are now allowed
 		},
 	}
 
