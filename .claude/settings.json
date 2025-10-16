@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir:*)",
+      "Bash(go test:*)",
+      "Bash(git checkout:*)",
+      "Bash(gh label create:*)",
+      "Bash(gh label delete:*)",
+      "Bash(gh label edit:*)",
+      "Bash(gh issue edit:*)",
+      "Bash(gh issue list:*)",
+      "Bash(gh pr checks:*)",
+      "Bash(golangci-lint run:*)",
+      "Bash(go build:*)",
+      "Bash(chmod:*)"
+    ],
+    "deny": [],
+    "ask": []
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [[ \"$CLAUDE_FILE_PATHS\" =~ \\.go$ ]]; then export PATH=\"$HOME/go/bin:$PATH\" && goimports -w \"$CLAUDE_FILE_PATHS\" && gofumpt -w \"$CLAUDE_FILE_PATHS\" && golangci-lint run --fix \"$CLAUDE_FILE_PATHS\"; fi"
+          }
+        ]
+      }
+    ]
+  }
+}
