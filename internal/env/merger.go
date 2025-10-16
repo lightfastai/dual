@@ -99,25 +99,44 @@ func LoadLayeredEnv(projectRoot string, cfg *config.Config, serviceName string, 
 	}
 
 	// Layer 2: Load service-specific environment file
+	// In worktrees, load from both parent repo and worktree, with worktree overriding
 	if serviceName != "" {
 		if service, ok := cfg.Services[serviceName]; ok {
-			// Determine the env file path
-			var envFilePath string
+			serviceEnv := make(map[string]string)
+
+			// Determine relative env file path
+			var relativeEnvPath string
 			if service.EnvFile != "" {
-				// Use the configured envFile path
-				envFilePath = filepath.Join(projectRoot, service.EnvFile)
+				relativeEnvPath = service.EnvFile
 			} else {
-				// Default to <service-path>/.env
-				envFilePath = filepath.Join(projectRoot, service.Path, ".env")
+				relativeEnvPath = filepath.Join(service.Path, ".env")
 			}
 
-			serviceEnv, err := loader.LoadEnvFile(envFilePath)
-			if err != nil {
-				// Non-fatal: The service .env file might not exist, which is OK
-				// Just continue with empty service environment
-			} else {
-				env.Service = serviceEnv
+			// First, try to load from parent repo (if we're in a worktree)
+			projectIdentifier, err := config.GetProjectIdentifier(projectRoot)
+			if err == nil && projectIdentifier != projectRoot {
+				// We're in a worktree, load parent repo's service env first
+				parentEnvPath := filepath.Join(projectIdentifier, relativeEnvPath)
+				parentEnv, err := loader.LoadEnvFile(parentEnvPath)
+				if err == nil {
+					// Merge parent repo env into service env (lowest priority)
+					for k, v := range parentEnv {
+						serviceEnv[k] = v
+					}
+				}
 			}
+
+			// Then, load from worktree (overrides parent repo)
+			worktreeEnvPath := filepath.Join(projectRoot, relativeEnvPath)
+			worktreeEnv, err := loader.LoadEnvFile(worktreeEnvPath)
+			if err == nil {
+				// Merge worktree env into service env (higher priority, overrides parent)
+				for k, v := range worktreeEnv {
+					serviceEnv[k] = v
+				}
+			}
+
+			env.Service = serviceEnv
 		}
 	}
 
