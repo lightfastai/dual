@@ -70,7 +70,7 @@ Manages `$PROJECT_ROOT/.dual/.local/registry.json`:
 - Thread-safe read/write operations with `sync.RWMutex`
 - File locking with flock to prevent concurrent modifications
 - Atomic writes via temp file + rename pattern
-- Auto-recovers from corruption (returns empty registry)
+- Auto-recovers from corruption with backup and clear recovery instructions
 
 ### 4. Context Detector (`internal/context/`)
 
@@ -88,7 +88,33 @@ Identifies the current service:
 - Uses longest path match for nested service structures
 - Returns `ErrServiceNotDetected` if no match found
 
-### 6. Hook System (`internal/hooks/`)
+### 6. Environment Layer (`internal/env/`)
+
+Manages layered environment variables with three priority levels:
+
+**Environment Loading:**
+- Uses `godotenv` library for full dotenv specification compatibility
+- Supports multiline values with proper quote handling
+- Variable expansion with `${VAR}` and `$VAR` syntax
+- Escape sequences in double-quoted strings (`\n`, `\t`, `\\`, `\"`)
+- Inline comment support
+- Complex quoting patterns
+- Compatible with Node.js dotenv files
+
+**Three-Layer Priority System:**
+1. **Base environment** (`.env.base` if configured) - lowest priority
+2. **Service-specific environment** (`<service-path>/.env`) - medium priority
+3. **Context-specific overrides** (`.dual/.local/service/<service>/.env`) - highest priority
+
+**Unified Loading:**
+- All environment loading uses the `LoadLayeredEnv()` function for consistency
+- Properly handles service `envFile` configuration (e.g., Vercel's `.vercel/.env.development.local`)
+- Falls back to `<service-path>/.env` if `envFile` not configured
+- Can load overrides from filesystem when registry unavailable
+- Used by `dual run` to inject full environment into command execution
+- Used by `dual env` commands for display and validation
+
+### 7. Hook System (`internal/hooks/`)
 
 Executes lifecycle hooks at key worktree management points:
 - Hook events: `postWorktreeCreate`, `preWorktreeDelete`, `postWorktreeDelete`
@@ -97,8 +123,9 @@ Executes lifecycle hooks at key worktree management points:
 - Non-zero exit codes fail the operation and halt execution
 - Scripts run in sequence (not parallel)
 - stdout/stderr are streamed to the user in real-time
+- Enhanced error messages include permission fixes and debug commands
 
-### 7. Worktree Manager (`internal/worktree/`)
+### 8. Worktree Manager (`internal/worktree/`)
 
 Handles git worktree operations:
 - Creates git worktrees at configured location
@@ -107,8 +134,9 @@ Handles git worktree operations:
 - Integrates with hook system for automation
 - Validates worktree paths and branch names
 - Removes worktrees with cleanup
+- Parses git errors and provides specific solutions
 
-### 8. Logger Manager (`internal/logger/`)
+### 9. Logger Manager (`internal/logger/`)
 
 Provides structured logging with multiple verbosity levels:
 - **Verbose mode** (`--verbose`): Shows detailed operational info
@@ -236,6 +264,13 @@ dual/
 │   ├── service/                 # Service detection
 │   │   ├── detector.go          # Service detection
 │   │   └── detector_test.go     # Unit tests
+│   │
+│   ├── env/                     # Environment management
+│   │   ├── loader.go            # Dotenv file loading with godotenv
+│   │   ├── loader_test.go       # Unit tests for loader
+│   │   ├── merger.go            # Layered environment merging
+│   │   ├── remapper.go          # Service env file generation
+│   │   └── remapper_test.go     # Unit tests for remapper
 │   │
 │   ├── hooks/                   # Hook system
 │   │   ├── executor.go          # Hook execution logic
@@ -1075,27 +1110,65 @@ var (
 )
 ```
 
-### Error Messages
+### Error Messages with Actionable Guidance
 
-All errors include helpful hints:
+All errors include helpful hints and actionable guidance (PR #73):
 
+**Configuration Errors:**
 ```
-Error: context "feature-x" not found in registry
-Hint: Run 'dual create feature-x' to create this context
+Error: Invalid YAML syntax in dual.config.yml
+Expected:
+  hooks:
+    postWorktreeCreate:
+      - script.sh
+Got:
+  hooks:
+    postWorktreeCreate: script.sh
 
-Error: worktrees.path not configured in dual.config.yml
-Hint: Add worktrees configuration to use 'dual create'
+Hint: hooks.postWorktreeCreate must be a list of scripts. Use YAML list syntax.
+```
 
+**Registry Errors:**
+```
+Error: Registry corrupted, creating backup
+Backup saved to: /project/.dual/.local/registry.json.backup
+Creating new empty registry...
+Hint: Check the backup file to recover any lost context mappings
+```
+
+**Hook Errors:**
+```
 Error: hook script not executable: setup-database.sh
 Hint: Run 'chmod +x .dual/hooks/setup-database.sh'
+
+Error: hook script failed with exit code 1
+Command: .dual/hooks/setup-database.sh
+Hint: Run the script manually to debug: .dual/hooks/setup-database.sh
+```
+
+**Git Worktree Errors:**
+```
+Error: Failed to create worktree
+Git error: fatal: 'feature-x' is already checked out at '/path/to/worktrees/feature-x'
+Solution: Delete the existing worktree first with 'dual delete feature-x'
+```
+
+**Context Not Found:**
+```
+Error: context "feature-x" not found in registry
+Available contexts: main, develop, feature-y
+Hint: Run 'dual create feature-x' to create this context
 ```
 
 ### Error Handling Strategy
 
-1. **Recoverable errors**: Show error + hint, exit 1
-2. **Unrecoverable errors**: Show error, exit 1
-3. **Hook execution errors**: Show error, preserve hook exit code
-4. **Corrupt registry**: Warn, create new empty registry
+1. **Configuration parsing errors**: Detect common YAML type mismatches and show correct syntax with examples
+2. **Registry corruption**: Create timestamped backups with recovery instructions
+3. **Lock timeout errors**: Provide debugging steps and hung process detection
+4. **Hook execution errors**: Include permission fixes and manual debug commands
+5. **Git worktree errors**: Parse git output and provide specific solutions
+6. **Context not found**: Show available contexts to help users
+7. **All errors**: Provide actionable hints with specific commands to resolve issues
 
 ---
 
@@ -1211,6 +1284,8 @@ internal/config/config_test.go
 internal/registry/registry_test.go
 internal/context/detector_test.go
 internal/service/detector_test.go
+internal/env/loader_test.go
+internal/env/remapper_test.go
 internal/hooks/executor_test.go
 internal/worktree/manager_test.go
 ```
@@ -1227,12 +1302,14 @@ test/integration/config_validation_test.go
 
 ### Test Coverage
 
-- Config loading and validation
-- Registry CRUD operations
+- Config loading and validation (including YAML type mismatch detection)
+- Registry CRUD operations (including corruption recovery)
 - Context detection (with mocks for git)
 - Service detection (with temp directories)
-- Hook execution (with mock scripts)
-- Worktree creation and deletion
+- Environment loading (dotenv compatibility, multiline values, variable expansion)
+- Layered environment merging (base, service, overrides)
+- Hook execution (with mock scripts and enhanced error messages)
+- Worktree creation and deletion (with git error parsing)
 
 ### Dependency Injection
 
@@ -1287,6 +1364,7 @@ detector := &Detector{
 - [Cobra](https://github.com/spf13/cobra) - CLI framework
 - [YAML v3](https://github.com/go-yaml/yaml) - YAML parsing
 - [gofrs/flock](https://github.com/gofrs/flock) - File locking
+- [godotenv](https://github.com/joho/godotenv) - Dotenv file parsing with full spec compatibility
 - [Go stdlib](https://pkg.go.dev/std) - Core functionality
 
 ---
