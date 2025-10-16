@@ -60,8 +60,8 @@ func runCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get project identifier: %w", err)
 	}
 
-	// Load registry (using projectRoot to construct the correct registry file path)
-	reg, err := registry.LoadRegistry(projectRoot)
+	// Load registry (using projectIdentifier to ensure worktrees access parent repo's registry)
+	reg, err := registry.LoadRegistry(projectIdentifier)
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
 	}
@@ -343,8 +343,8 @@ func applyEnvOverrides(cfg *config.Config, reg *registry.Registry, projectIdenti
 		fmt.Fprintf(os.Stderr, "[dual] Warning: failed to save registry with env overrides: %v\n", err)
 	}
 
-	// Generate service env files in the worktree (not parent repo)
-	if err := env.GenerateServiceEnvFiles(cfg, reg, worktreePath, projectIdentifier, branchName); err != nil {
+	// Generate service env files (overrides go to parent repo, not worktree)
+	if err := env.GenerateServiceEnvFiles(cfg, reg, projectIdentifier, projectIdentifier, branchName); err != nil {
 		fmt.Fprintf(os.Stderr, "[dual] Warning: failed to generate service env files: %v\n", err)
 	}
 }

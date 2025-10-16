@@ -71,8 +71,8 @@ func runDelete(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot delete current context %q\nHint: Switch to a different branch or worktree first", contextName)
 	}
 
-	// Load registry (using projectRoot to construct the correct registry file path)
-	reg, err := registry.LoadRegistry(projectRoot)
+	// Load registry (using projectIdentifier to ensure worktrees access parent repo's registry)
+	reg, err := registry.LoadRegistry(projectIdentifier)
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
 	}
@@ -127,7 +127,8 @@ func runDelete(cmd *cobra.Command, args []string) error {
 	}
 
 	// Cleanup service env files before deleting context
-	if err := env.CleanupServiceEnvFiles(projectRoot); err != nil {
+	// Use projectIdentifier to clean up from parent repo's .dual/ directory
+	if err := env.CleanupServiceEnvFiles(projectIdentifier); err != nil {
 		fmt.Fprintf(os.Stderr, "[dual] Warning: failed to cleanup service env files: %v\n", err)
 		// Don't fail the command - continue with deletion
 	}

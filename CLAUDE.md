@@ -339,6 +339,89 @@ The registry is **project-local** at `$PROJECT_ROOT/.dual/.local/registry.json`,
 - The registry should be added to `.gitignore` to avoid committing context mappings
 - File locking ensures concurrent dual operations don't corrupt the registry
 
+### Worktree Environment Architecture
+
+The dual CLI implements a **two-root architecture** for proper worktree support:
+
+1. **Parent Repository Root** (`projectIdentifier`)
+   - Where the main repository lives
+   - Where registry is stored (`.dual/.local/registry.json`)
+   - Where environment overrides are stored (`.dual/.local/service/<service>/.env`)
+   - Obtained via `config.GetProjectIdentifier(projectRoot)`
+   - Shared by all worktrees of the same repository
+
+2. **Worktree Root** (`projectRoot`)
+   - Where the current worktree lives (or parent repo if not a worktree)
+   - Where `dual.config.yml` is found
+   - Where service directories exist (e.g., `apps/web/`)
+   - Where service `.env` files are read from
+   - Returned by `config.LoadConfig()`
+
+**How it works:**
+
+When running from a worktree:
+1. **Config Discovery**: `config.LoadConfig()` finds `dual.config.yml` in the worktree
+2. **Parent Discovery**: `config.GetProjectIdentifier()` uses the worktree detector to find the parent repository via the `.git` file
+3. **Registry Access**: Registry is always loaded from parent repo's `.dual/.local/registry.json`
+4. **Environment Overrides**: Override files are always written to/read from parent repo's `.dual/.local/service/<service>/.env`
+5. **Service Files**: Service `.env` files are read from the worktree's service directories
+
+This ensures all worktrees share the same registry and environment configuration while maintaining independent working directories for git operations.
+
+**File locations in a worktree:**
+- `$PARENT_REPO/.dual/.local/registry.json` - Shared registry
+- `$PARENT_REPO/.dual/.local/service/<service>/.env` - Shared environment overrides
+- `$WORKTREE/apps/web/.env` - Service-specific env files (in worktree)
+- `$WORKTREE/dual.config.yml` - Config file (copied to worktree during `dual create`)
+
+## Worktree Troubleshooting
+
+### Issue: Environment overrides not showing up in worktree
+
+**Symptoms:**
+- `dual env set` appears to succeed but `dual env show` doesn't reflect changes
+- `dual run` doesn't include override variables
+
+**Solution:**
+- Verify the override file exists in the **parent repository**: `ls $PARENT_REPO/.dual/.local/service/<service>/.env`
+- NOT in the worktree: the file should be in the parent repo, not `$WORKTREE/.dual/`
+- Run `dual doctor` to check for configuration issues
+- Ensure you're running commands from within a valid worktree or parent repo
+
+### Issue: Registry appears empty from worktree
+
+**Symptoms:**
+- `dual list` shows no contexts when run from worktree
+- `dual create` fails with "context already exists" but `dual list` shows nothing
+
+**Solution:**
+- Check if registry exists in parent repo: `cat $PARENT_REPO/.dual/.local/registry.json`
+- Verify the worktree detector is working: check that `.git` is a file (not directory) in the worktree
+- Registry should be shared between parent and all worktrees
+- Run `dual doctor --verbose` for detailed diagnostics
+
+### Issue: Worktree has its own .dual/ directory
+
+**Symptoms:**
+- Found `.dual/` directory in worktree instead of parent repo
+- Environment overrides are isolated per worktree
+
+This was a bug in versions prior to v0.4.0. To fix:
+1. Move override files to parent repo: `mv $WORKTREE/.dual/.local/service/ $PARENT_REPO/.dual/.local/service/`
+2. Remove worktree's .dual/: `rm -rf $WORKTREE/.dual/`
+3. Verify with `dual doctor`
+
+### Debugging worktree detection
+
+```bash
+# Check if current directory is detected as worktree
+git rev-parse --is-inside-work-tree  # Should return true
+git rev-parse --git-common-dir        # Points to parent .git if worktree
+
+# Check worktree parent
+cat .git  # Should contain: gitdir: /path/to/parent/.git/worktrees/name
+```
+
 ## Configuration Schema
 
 The `dual.config.yml` file supports the following structure:

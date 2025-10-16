@@ -77,42 +77,42 @@ worktrees:
 	stdout, stderr, exitCode = h.RunDualInDir(worktreePath, "env", "set", "--service", "web", "WEB_TOKEN", "web-secret-token")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 
-	// Step 8: Verify .dual/.local/service/<service>/.env files exist in worktree
-	t.Log("Step 8: Verify env files exist in worktree")
+	// Step 8: Verify .dual/.local/service/<service>/.env files exist in parent repo
+	t.Log("Step 8: Verify env files exist in parent repo")
 
 	webEnvPath := ".dual/.local/service/web/.env"
 	apiEnvPath := ".dual/.local/service/api/.env"
 	workerEnvPath := ".dual/.local/service/worker/.env"
 
-	if !h.FileExistsInDir(worktreePath, webEnvPath) {
-		t.Errorf("Expected %s to exist in worktree", webEnvPath)
+	if !h.FileExistsInDir(h.ProjectDir, webEnvPath) {
+		t.Errorf("Expected %s to exist in parent repo", webEnvPath)
 	}
-	if !h.FileExistsInDir(worktreePath, apiEnvPath) {
-		t.Errorf("Expected %s to exist in worktree", apiEnvPath)
+	if !h.FileExistsInDir(h.ProjectDir, apiEnvPath) {
+		t.Errorf("Expected %s to exist in parent repo", apiEnvPath)
 	}
-	if !h.FileExistsInDir(worktreePath, workerEnvPath) {
-		t.Errorf("Expected %s to exist in worktree", workerEnvPath)
+	if !h.FileExistsInDir(h.ProjectDir, workerEnvPath) {
+		t.Errorf("Expected %s to exist in parent repo", workerEnvPath)
 	}
 
 	// Step 9: Verify files contain only remapped variables (sparse pattern)
 	t.Log("Step 9: Verify env file contents")
 
 	// Web service: global overrides + WEB_TOKEN
-	webContent := h.ReadFileInDir(worktreePath, webEnvPath)
+	webContent := h.ReadFileInDir(h.ProjectDir, webEnvPath)
 	h.AssertOutputContains(webContent, "DATABASE_URL=postgres://localhost/testdb")
 	h.AssertOutputContains(webContent, "REDIS_URL=redis://localhost:6379")
 	h.AssertOutputContains(webContent, "WEB_TOKEN=web-secret-token")
 	h.AssertOutputNotContains(webContent, "API_KEY=") // Should not have API_KEY
 
 	// API service: global overrides + API_KEY
-	apiContent := h.ReadFileInDir(worktreePath, apiEnvPath)
+	apiContent := h.ReadFileInDir(h.ProjectDir, apiEnvPath)
 	h.AssertOutputContains(apiContent, "DATABASE_URL=postgres://localhost/testdb")
 	h.AssertOutputContains(apiContent, "REDIS_URL=redis://localhost:6379")
 	h.AssertOutputContains(apiContent, "API_KEY=secret-api-key")
 	h.AssertOutputNotContains(apiContent, "WEB_TOKEN=") // Should not have WEB_TOKEN
 
 	// Worker service: only global overrides
-	workerContent := h.ReadFileInDir(worktreePath, workerEnvPath)
+	workerContent := h.ReadFileInDir(h.ProjectDir, workerEnvPath)
 	h.AssertOutputContains(workerContent, "DATABASE_URL=postgres://localhost/testdb")
 	h.AssertOutputContains(workerContent, "REDIS_URL=redis://localhost:6379")
 	h.AssertOutputNotContains(workerContent, "API_KEY=")   // Should not have API_KEY
@@ -174,10 +174,10 @@ worktrees:
 
 	// Verify initial state
 	t.Log("Verify initial env file state")
-	if !h.FileExistsInDir(worktreePath, envPath) {
-		t.Fatalf("Expected %s to exist in worktree", envPath)
+	if !h.FileExistsInDir(h.ProjectDir, envPath) {
+		t.Fatalf("Expected %s to exist in parent repo", envPath)
 	}
-	content := h.ReadFileInDir(worktreePath, envPath)
+	content := h.ReadFileInDir(h.ProjectDir, envPath)
 	h.AssertOutputContains(content, "INITIAL_VAR=initial-value")
 
 	// Switch to worktree to test regeneration
@@ -186,7 +186,7 @@ worktrees:
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 
 	// Verify NEW_VAR appears in env file
-	content = h.ReadFileInDir(worktreePath, envPath)
+	content = h.ReadFileInDir(h.ProjectDir, envPath)
 	h.AssertOutputContains(content, "NEW_VAR=new-value")
 	h.AssertOutputContains(content, "INITIAL_VAR=initial-value") // Old var still there
 
@@ -196,7 +196,7 @@ worktrees:
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 
 	// Verify INITIAL_VAR is removed from env file
-	content = h.ReadFileInDir(worktreePath, envPath)
+	content = h.ReadFileInDir(h.ProjectDir, envPath)
 	h.AssertOutputNotContains(content, "INITIAL_VAR=")
 	h.AssertOutputContains(content, "NEW_VAR=new-value") // NEW_VAR still there
 
@@ -241,19 +241,19 @@ worktrees:
 
 	// Verify file exists
 	t.Log("Verify initial env file exists")
-	if !h.FileExistsInDir(worktreePath, envPath) {
+	if !h.FileExistsInDir(h.ProjectDir, envPath) {
 		t.Fatalf("Expected %s to exist", envPath)
 	}
 
 	// Manually delete env file
 	t.Log("Manually delete env file")
-	envFullPath := filepath.Join(worktreePath, envPath)
+	envFullPath := filepath.Join(h.ProjectDir, envPath)
 	if err := os.Remove(envFullPath); err != nil {
 		t.Fatalf("Failed to delete env file: %v", err)
 	}
 
 	// Verify file is gone
-	if h.FileExistsInDir(worktreePath, envPath) {
+	if h.FileExistsInDir(h.ProjectDir, envPath) {
 		t.Fatalf("Expected %s to be deleted", envPath)
 	}
 
@@ -265,11 +265,11 @@ worktrees:
 
 	// Verify file is recreated
 	t.Log("Verify env file is recreated")
-	if !h.FileExistsInDir(worktreePath, envPath) {
+	if !h.FileExistsInDir(h.ProjectDir, envPath) {
 		t.Fatalf("Expected %s to be recreated", envPath)
 	}
 
-	content := h.ReadFileInDir(worktreePath, envPath)
+	content := h.ReadFileInDir(h.ProjectDir, envPath)
 	h.AssertOutputContains(content, "TEST_VAR=test-value")
 
 	t.Log("Test completed successfully!")
@@ -311,10 +311,10 @@ worktrees:
 	// Set env var in worktree context to trigger env file generation
 	h.RunDualInDir(worktreePath, "env", "set", "CLEANUP_VAR", "cleanup-value")
 
-	// Verify .dual/.local/service/ exists
-	t.Log("Verify .dual/.local/service/ exists")
-	if !h.FileExistsInDir(worktreePath, servicePath) {
-		t.Fatalf("Expected %s to exist in worktree", servicePath)
+	// Verify .dual/.local/service/ exists in parent repo
+	t.Log("Verify .dual/.local/service/ exists in parent repo")
+	if !h.FileExistsInDir(h.ProjectDir, servicePath) {
+		t.Fatalf("Expected %s to exist in parent repo", servicePath)
 	}
 
 	// Delete worktree with dual delete
@@ -395,14 +395,14 @@ hooks:
 	// Set env var in worktree context
 	h.RunDualInDir(worktreePath, "env", "set", "DUAL_VAR", "dual-value")
 
-	// Verify dual-generated env file exists
-	t.Log("Verify dual-generated env file exists")
+	// Verify dual-generated env file exists in parent repo
+	t.Log("Verify dual-generated env file exists in parent repo")
 	dualEnvPath := ".dual/.local/service/web/.env"
-	if !h.FileExistsInDir(worktreePath, dualEnvPath) {
-		t.Errorf("Expected dual-generated %s to exist", dualEnvPath)
+	if !h.FileExistsInDir(h.ProjectDir, dualEnvPath) {
+		t.Errorf("Expected dual-generated %s to exist in parent repo", dualEnvPath)
 	}
 
-	dualEnvContent := h.ReadFileInDir(worktreePath, dualEnvPath)
+	dualEnvContent := h.ReadFileInDir(h.ProjectDir, dualEnvPath)
 	h.AssertOutputContains(dualEnvContent, "DUAL_VAR=dual-value")
 
 	// Verify hook-created file exists (if hooks were executed)
@@ -449,13 +449,12 @@ func TestEnvRemappingEmptyOverrides(t *testing.T) {
 	stdout, stderr, exitCode := h.RunDual("create", "feature-empty")
 	h.AssertExitCode(exitCode, 0, stdout+stderr)
 
-	worktreePath := filepath.Join(h.TempDir, "worktrees", "feature-empty")
 	envPath := ".dual/.local/service/web/.env"
 
-	// Verify NO env file is created (sparse pattern)
+	// Verify NO env file is created in parent repo (sparse pattern)
 	t.Log("Verify no env file is created when there are no overrides")
-	if h.FileExistsInDir(worktreePath, envPath) {
-		t.Errorf("Expected %s to NOT exist when there are no overrides", envPath)
+	if h.FileExistsInDir(h.ProjectDir, envPath) {
+		t.Errorf("Expected %s to NOT exist in parent repo when there are no overrides", envPath)
 	}
 
 	t.Log("Test completed successfully!")
@@ -501,21 +500,21 @@ worktrees:
 	// Set ONLY service-specific overrides (no global) in worktree context
 	h.RunDualInDir(worktreePath, "env", "set", "--service", "api", "API_SPECIFIC", "api-only-value")
 
-	// API should have env file
-	t.Log("Verify API service has env file")
+	// API should have env file in parent repo
+	t.Log("Verify API service has env file in parent repo")
 	apiEnvPath := ".dual/.local/service/api/.env"
-	if !h.FileExistsInDir(worktreePath, apiEnvPath) {
-		t.Errorf("Expected %s to exist", apiEnvPath)
+	if !h.FileExistsInDir(h.ProjectDir, apiEnvPath) {
+		t.Errorf("Expected %s to exist in parent repo", apiEnvPath)
 	}
 
-	apiContent := h.ReadFileInDir(worktreePath, apiEnvPath)
+	apiContent := h.ReadFileInDir(h.ProjectDir, apiEnvPath)
 	h.AssertOutputContains(apiContent, "API_SPECIFIC=api-only-value")
 
 	// Web should NOT have env file (no overrides for it)
 	t.Log("Verify web service has no env file")
 	webEnvPath := ".dual/.local/service/web/.env"
-	if h.FileExistsInDir(worktreePath, webEnvPath) {
-		t.Errorf("Expected %s to NOT exist (no overrides for web)", webEnvPath)
+	if h.FileExistsInDir(h.ProjectDir, webEnvPath) {
+		t.Errorf("Expected %s to NOT exist in parent repo (no overrides for web)", webEnvPath)
 	}
 
 	t.Log("Test completed successfully!")
@@ -560,7 +559,7 @@ worktrees:
 
 	// Verify quoted values
 	t.Log("Verify values are properly quoted")
-	content := h.ReadFileInDir(worktreePath, envPath)
+	content := h.ReadFileInDir(h.ProjectDir, envPath)
 
 	// Value with spaces should be quoted
 	if !strings.Contains(content, `SPACED_VALUE="value with spaces"`) {
@@ -621,25 +620,25 @@ worktrees:
 	t.Log("Set service-specific PORT for API")
 	h.RunDualInDir(worktreePath, "env", "set", "--service", "api", "PORT", "5000")
 
-	// Verify web service has global PORT
-	t.Log("Verify web service has global PORT")
+	// Verify web service has global PORT in parent repo
+	t.Log("Verify web service has global PORT in parent repo")
 	webEnvPath := ".dual/.local/service/web/.env"
-	if !h.FileExistsInDir(worktreePath, webEnvPath) {
-		t.Errorf("Expected %s to exist", webEnvPath)
+	if !h.FileExistsInDir(h.ProjectDir, webEnvPath) {
+		t.Errorf("Expected %s to exist in parent repo", webEnvPath)
 	}
 
-	webContent := h.ReadFileInDir(worktreePath, webEnvPath)
+	webContent := h.ReadFileInDir(h.ProjectDir, webEnvPath)
 	h.AssertOutputContains(webContent, "PORT=4000")
 	h.AssertOutputContains(webContent, "DATABASE_URL=postgres://localhost/db")
 
-	// Verify API service has service-specific PORT (overrides global)
-	t.Log("Verify API service has service-specific PORT")
+	// Verify API service has service-specific PORT (overrides global) in parent repo
+	t.Log("Verify API service has service-specific PORT in parent repo")
 	apiEnvPath := ".dual/.local/service/api/.env"
-	if !h.FileExistsInDir(worktreePath, apiEnvPath) {
-		t.Errorf("Expected %s to exist", apiEnvPath)
+	if !h.FileExistsInDir(h.ProjectDir, apiEnvPath) {
+		t.Errorf("Expected %s to exist in parent repo", apiEnvPath)
 	}
 
-	apiContent := h.ReadFileInDir(worktreePath, apiEnvPath)
+	apiContent := h.ReadFileInDir(h.ProjectDir, apiEnvPath)
 	h.AssertOutputContains(apiContent, "PORT=5000") // Service-specific overrides global
 	h.AssertOutputContains(apiContent, "DATABASE_URL=postgres://localhost/db")
 
@@ -647,12 +646,12 @@ worktrees:
 	t.Log("Verify unset PORT removes it from env files")
 	h.RunDualInDir(worktreePath, "env", "unset", "PORT")
 
-	webContent = h.ReadFileInDir(worktreePath, webEnvPath)
+	webContent = h.ReadFileInDir(h.ProjectDir, webEnvPath)
 	h.AssertOutputNotContains(webContent, "PORT=4000")
 	h.AssertOutputContains(webContent, "DATABASE_URL=postgres://localhost/db") // Other vars still there
 
 	// API should still have service-specific PORT
-	apiContent = h.ReadFileInDir(worktreePath, apiEnvPath)
+	apiContent = h.ReadFileInDir(h.ProjectDir, apiEnvPath)
 	h.AssertOutputContains(apiContent, "PORT=5000") // Service-specific PORT still there
 
 	t.Log("Test completed successfully!")

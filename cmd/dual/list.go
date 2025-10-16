@@ -55,8 +55,8 @@ func runList(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to get project identifier: %w", err)
 	}
 
-	// Load registry (using projectRoot to construct the correct registry file path)
-	reg, err := registry.LoadRegistry(projectRoot)
+	// Load registry (using projectIdentifier to ensure worktrees access parent repo's registry)
+	reg, err := registry.LoadRegistry(projectIdentifier)
 	if err != nil {
 		return fmt.Errorf("failed to load registry: %w", err)
 	}

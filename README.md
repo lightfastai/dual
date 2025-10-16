@@ -57,7 +57,7 @@ All environment-related commands now use the same three-layer loading system:
 
 1. **Base Environment** (.env.base) - Shared across all services
 2. **Service Environment** (apps/api/.env) - Service-specific defaults
-3. **Context Overrides** (.dual/.local/service/api/.env) - Worktree-specific values
+3. **Context Overrides** (.dual/.local/service/api/.env) - Context-specific values (stored in parent repo)
 
 This ensures `dual env show`, `dual env export`, and `dual run` all see exactly the same environment.
 
@@ -456,9 +456,9 @@ API_URL=http://${API_HOST}:${API_PORT}
 PUBLIC_URL=http://localhost:${PORT}
 ```
 
-#### Layer 3: Context Overrides (Per-Worktree)
+#### Layer 3: Context Overrides (Context-Specific)
 
-Set context-specific values that override the lower layers:
+Set context-specific values that override the lower layers. These overrides are stored in the parent repository's `.dual/.local/` directory and shared across all worktrees:
 
 ```bash
 # Set global override for current context
@@ -615,7 +615,12 @@ Each project has its own state directory:
 .dual/
 ├── .local/
 │   ├── registry.json          # Context-to-worktree mappings
-│   └── registry.json.lock     # Lock file for concurrent access
+│   ├── registry.json.lock     # Lock file for concurrent access
+│   └── service/               # Context-specific environment overrides
+│       ├── api/
+│       │   └── .env          # API service overrides for current context
+│       └── web/
+│           └── .env          # Web service overrides for current context
 └── hooks/                     # Hook scripts
     ├── setup-environment.sh
     ├── setup-database.sh
@@ -624,7 +629,7 @@ Each project has its own state directory:
 
 **Should be added to `.gitignore`** (except hooks directory).
 
-The registry is project-local and shared across all worktrees of the same repository:
+The registry and environment overrides are stored in the parent repository and shared across all worktrees:
 
 ```json
 {
@@ -819,8 +824,9 @@ pscale branch create myapp "$DUAL_CONTEXT_NAME" --from main --wait
 # Get connection string
 CONNECTION_URL=$(pscale connect myapp "$DUAL_CONTEXT_NAME" --format url)
 
-# Write to environment file
-echo "DATABASE_URL=$CONNECTION_URL" >> "$DUAL_CONTEXT_PATH/.env.local"
+# Use dual env to set database URL
+cd "$DUAL_CONTEXT_PATH"
+dual env set DATABASE_URL "$CONNECTION_URL"
 
 echo "Database branch ready: $DUAL_CONTEXT_NAME"
 ```

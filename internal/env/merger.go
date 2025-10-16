@@ -128,7 +128,14 @@ func LoadLayeredEnv(projectRoot string, cfg *config.Config, serviceName string, 
 	} else if contextName != "" && serviceName != "" {
 		// If no overrides provided but we have context and service,
 		// try to load from filesystem (.dual/.local/service/<service>/.env)
-		overridesPath := filepath.Join(projectRoot, ".dual", ".local", "service", serviceName, ".env")
+		// Get the parent repo root for override files (worktrees share parent's .dual/)
+		projectIdentifier, err := config.GetProjectIdentifier(projectRoot)
+		if err != nil {
+			// Fallback to projectRoot if not a git repo
+			projectIdentifier = projectRoot
+		}
+
+		overridesPath := filepath.Join(projectIdentifier, ".dual", ".local", "service", serviceName, ".env")
 		overridesEnv, err := loader.LoadEnvFile(overridesPath)
 		if err == nil {
 			env.Overrides = overridesEnv
