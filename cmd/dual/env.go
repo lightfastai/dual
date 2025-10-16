@@ -468,7 +468,7 @@ func runEnvSet(cmd *cobra.Command, args []string) error {
 	}
 
 	// Generate service env files
-	if err := env.GenerateServiceEnvFiles(cfg, reg, projectRoot, projectIdentifier, contextName); err != nil {
+	if err := env.GenerateServiceEnvFiles(cfg, reg, projectIdentifier, projectIdentifier, contextName); err != nil {
 		fmt.Fprintf(os.Stderr, "[dual] Warning: failed to regenerate service env files: %v\n", err)
 		// Don't fail the command - the override is saved, env files are optional
 	}
@@ -564,7 +564,7 @@ func runEnvUnset(cmd *cobra.Command, args []string) error {
 	}
 
 	// Generate service env files
-	if err := env.GenerateServiceEnvFiles(cfg, reg, projectRoot, projectIdentifier, contextName); err != nil {
+	if err := env.GenerateServiceEnvFiles(cfg, reg, projectIdentifier, projectIdentifier, contextName); err != nil {
 		fmt.Fprintf(os.Stderr, "[dual] Warning: failed to regenerate service env files: %v\n", err)
 		// Don't fail the command - the override is removed, env files are optional
 	}
@@ -972,12 +972,12 @@ func runEnvRemap(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(os.Stderr, "[dual] Regenerating service env files for context '%s'...\n", contextName)
 
 	// Generate service env files
-	if err := env.GenerateServiceEnvFiles(cfg, reg, projectRoot, projectIdentifier, contextName); err != nil {
+	if err := env.GenerateServiceEnvFiles(cfg, reg, projectIdentifier, projectIdentifier, contextName); err != nil {
 		return fmt.Errorf("failed to generate service env files: %w", err)
 	}
 
 	fmt.Fprintf(os.Stderr, "[dual] Service env files regenerated successfully\n")
-	fmt.Fprintf(os.Stderr, "  Files written to: %s/.dual/.local/service/<service>/.env\n", projectRoot)
+	fmt.Fprintf(os.Stderr, "  Files written to: %s/.dual/.local/service/<service>/.env\n", projectIdentifier)
 
 	return nil
 }

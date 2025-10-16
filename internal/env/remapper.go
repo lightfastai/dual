@@ -47,7 +47,7 @@ func GenerateServiceEnvFiles(cfg *config.Config, reg *registry.Registry, project
 		}
 
 		// Write service env file
-		outputPath := filepath.Join(projectRoot, ".dual", ".local", "service", serviceName, ".env")
+		outputPath := filepath.Join(projectIdentifier, ".dual", ".local", "service", serviceName, ".env")
 		if err := writeServiceEnvFile(serviceName, contextName, remappedVars, outputPath); err != nil {
 			return fmt.Errorf("failed to write env file for service %q: %w", serviceName, err)
 		}
