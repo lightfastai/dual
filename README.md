@@ -21,6 +21,69 @@
 
 ---
 
+## What's New in v0.3.0
+
+### Full Dotenv Compatibility
+
+Dual now uses the industry-standard godotenv library for complete compatibility with Node.js dotenv files:
+
+- **Multiline Values**: Use quotes for certificates, keys, SQL queries, and formatted text
+- **Variable Expansion**: Reference other variables with `${VAR}` or `$VAR` syntax for DRY configuration
+- **Escape Sequences**: Process `\n`, `\t`, `\\`, `\"` in double-quoted strings
+- **Inline Comments**: Document your configuration with `#` comments
+- **Complex Quoting**: Mix single and double quotes for nested values
+
+```bash
+# .env - Full dotenv support
+DATABASE_HOST=localhost
+DATABASE_PORT=5432
+DATABASE_NAME=myapp
+
+# Variable expansion - build URLs from components
+DATABASE_URL=postgresql://${DATABASE_HOST}:${DATABASE_PORT}/${DATABASE_NAME}
+
+# Multiline values - perfect for certificates
+TLS_CERT="-----BEGIN CERTIFICATE-----
+MIIDXTCCAkWgAwIBAgIJAKLdQVPy90WjMA0GCSqGSIb3DQEBCwUA...
+-----END CERTIFICATE-----"
+
+# Escape sequences - actual newlines in values
+WELCOME_MESSAGE="Hello!\nWelcome to our app"
+```
+
+### Unified Environment Loading
+
+All environment-related commands now use the same three-layer loading system:
+
+1. **Base Environment** (.env.base) - Shared across all services
+2. **Service Environment** (apps/api/.env) - Service-specific defaults
+3. **Context Overrides** (.dual/.local/service/api/.env) - Worktree-specific values
+
+This ensures `dual env show`, `dual env export`, and `dual run` all see exactly the same environment.
+
+### Enhanced Error Handling
+
+Better error messages with actionable guidance:
+
+```
+Error: worktrees.path not configured in dual.config.yml
+Hint: Add a worktrees section to use 'dual create':
+  worktrees:
+    path: ../worktrees
+    naming: "{branch}"
+```
+
+### Migration Notes
+
+If upgrading from v0.2.x, some .env files may need updates:
+- Variable expansion is now enabled (quote with single quotes for literal `${VAR}`)
+- Escape sequences are processed in double quotes (use single quotes for literal `\n`)
+- Inline comments are stripped (quote values containing `#`)
+
+See [USAGE.md - Migration Guide](USAGE.md#migration-guide) for detailed migration instructions.
+
+---
+
 ## The Problem
 
 When working on multiple features using git worktrees:
@@ -79,6 +142,10 @@ dual delete feature-auth
 
 - **Automated Worktree Lifecycle**: Create and delete worktrees with a single command
 - **Hook-Based Customization**: Implement custom logic for ports, databases, environments, and more
+- **Full Dotenv Compatibility**: Multiline values, variable expansion, escape sequences - works with any Node.js dotenv file
+- **Three-Layer Environment System**: Base → Service → Context with automatic merging and override support
+- **Unified Environment Loading**: Consistent behavior across all commands with layered configuration
+- **Enhanced Error Handling**: Actionable error messages with helpful suggestions for fixing issues
 - **Project-Local State**: Each project has its own registry and hooks
 - **Service Detection**: Auto-detect which service you're working on in monorepos
 - **Context Management**: Track worktrees and their configurations
@@ -206,9 +273,61 @@ hooks:
     - cleanup-database.sh
 ```
 
-### 4. Create hook scripts
+### 4. Create base environment (optional)
 
-Create `.dual/hooks/setup-environment.sh`:
+Create `.env.base` for shared configuration:
+
+```bash
+# .env.base - Shared across all services and contexts
+APP_NAME=MyApp
+API_VERSION=v1
+LOG_LEVEL=info
+NODE_ENV=development
+
+# Database configuration (will be overridden per context)
+DATABASE_HOST=localhost
+DATABASE_PORT=5432
+```
+
+Configure in `dual.config.yml`:
+
+```yaml
+env:
+  baseFile: .env.base
+```
+
+### 5. Create service environments
+
+Create service-specific `.env` files using modern dotenv features:
+
+```bash
+# apps/web/.env
+PORT=3000
+
+# Use variable expansion for DRY configuration
+API_HOST=localhost
+API_PORT=3001
+API_URL=http://${API_HOST}:${API_PORT}
+
+# Multi-service URLs
+PUBLIC_URL=http://localhost:${PORT}
+```
+
+```bash
+# apps/api/.env
+PORT=3001
+
+# Variable expansion from base environment
+DATABASE_URL=postgresql://${DATABASE_HOST}:${DATABASE_PORT}/myapp
+
+# Multiline configuration
+CORS_ORIGINS="http://localhost:3000
+http://localhost:3001"
+```
+
+### 6. Create hook scripts
+
+Create `.dual/hooks/setup-environment.sh` to customize per worktree:
 
 ```bash
 #!/bin/bash
@@ -221,11 +340,10 @@ BASE_PORT=4000
 CONTEXT_HASH=$(echo -n "$DUAL_CONTEXT_NAME" | md5sum | cut -c1-4)
 PORT=$((BASE_PORT + 0x$CONTEXT_HASH % 1000))
 
-# Write to .env file
-cat > "$DUAL_CONTEXT_PATH/.env.local" <<EOF
-PORT=$PORT
-DATABASE_URL=postgresql://localhost/myapp_${DUAL_CONTEXT_NAME}
-EOF
+# Use dual env to set context-specific overrides
+cd "$DUAL_CONTEXT_PATH"
+dual env set PORT $PORT
+dual env set DATABASE_URL "postgresql://localhost/myapp_${DUAL_CONTEXT_NAME}"
 
 echo "Assigned port: $PORT"
 ```
@@ -236,7 +354,7 @@ Make it executable:
 chmod +x .dual/hooks/setup-environment.sh
 ```
 
-### 5. Use dual to manage worktrees
+### 7. Use dual to manage worktrees
 
 ```bash
 # Create a worktree with automated setup
@@ -271,8 +389,151 @@ dual delete <context>             # Delete worktree with cleanup
 dual context list                 # List all contexts
 dual context                      # Show current context
 
+# Environment management
+dual env show                     # Display environment summary
+dual env set KEY value            # Set context-specific override
+dual env unset KEY                # Remove override
+dual env export                   # Export merged environment
+dual env check                    # Validate configuration
+dual env diff ctx1 ctx2           # Compare environments
+
+# Command execution
+dual run <command>                # Run with full environment injection
+
 # Health check
 dual doctor                       # Diagnose configuration issues
+```
+
+### Environment Management
+
+Dual provides a three-layer environment system that automatically merges configuration:
+
+#### Layer 1: Base Environment (Shared)
+
+Create `.env.base` for variables shared across all services:
+
+```bash
+# .env.base
+APP_NAME=MyApp
+API_VERSION=v1
+LOG_LEVEL=info
+DATABASE_HOST=localhost
+DATABASE_PORT=5432
+```
+
+Configure in `dual.config.yml`:
+
+```yaml
+env:
+  baseFile: .env.base
+```
+
+#### Layer 2: Service Environment (Defaults)
+
+Each service has its own `.env` file with service-specific defaults:
+
+```bash
+# apps/api/.env
+PORT=3001
+
+# Use variable expansion from base environment
+DATABASE_URL=postgresql://${DATABASE_HOST}:${DATABASE_PORT}/myapp
+
+# Service-specific configuration
+MAX_CONNECTIONS=100
+REDIS_URL=redis://localhost:6379
+```
+
+```bash
+# apps/web/.env
+PORT=3000
+
+# Build URLs using variable expansion
+API_HOST=localhost
+API_PORT=3001
+API_URL=http://${API_HOST}:${API_PORT}
+
+PUBLIC_URL=http://localhost:${PORT}
+```
+
+#### Layer 3: Context Overrides (Per-Worktree)
+
+Set context-specific values that override the lower layers:
+
+```bash
+# Set global override for current context
+dual env set DATABASE_URL "postgresql://localhost/myapp_feature_auth"
+
+# Set service-specific override
+dual env set --service api PORT 5000
+dual env set --service web PORT 4000
+
+# View current environment
+dual env show --values
+
+# Export for use in other tools
+dual env export > .env.local
+```
+
+#### Environment Features
+
+**Variable Expansion** - Build complex values from simple parts:
+
+```bash
+# .env
+DATABASE_HOST=localhost
+DATABASE_PORT=5432
+DATABASE_NAME=myapp
+
+# Expansion happens automatically
+DATABASE_URL=postgresql://${DATABASE_HOST}:${DATABASE_PORT}/${DATABASE_NAME}
+```
+
+**Multiline Values** - Perfect for certificates and formatted text:
+
+```bash
+# .env
+TLS_CERT="-----BEGIN CERTIFICATE-----
+MIIDXTCCAkWgAwIBAgIJAKLdQVPy90WjMA0GCSqGSIb3DQEBCwUA...
+-----END CERTIFICATE-----"
+
+SQL_QUERY="SELECT users.id, users.name
+FROM users
+WHERE users.active = true"
+```
+
+**Escape Sequences** - Process special characters in double quotes:
+
+```bash
+# .env
+WELCOME_MESSAGE="Hello!\nWelcome to our application"  # Actual newline
+WINDOWS_PATH="C:\\Program Files\\MyApp"                # Escaped backslashes
+```
+
+**Inline Comments** - Document your configuration:
+
+```bash
+# .env
+PORT=3000           # Application port
+DEBUG=true          # Enable debug mode
+MAX_WORKERS=4       # CPU core count
+```
+
+#### Running Commands with Environment
+
+Use `dual run` to execute commands with the full merged environment:
+
+```bash
+# Service auto-detected from current directory
+cd apps/api
+dual run npm start
+
+# Or explicitly specify service
+dual run --service api npm start
+
+# Run with full environment injection
+dual run node server.js
+# Server receives merged variables from all three layers
 ```
 
 ### Hook System
@@ -323,6 +584,10 @@ services:
     path: apps/api
     envFile: .env
 
+# Optional: Base environment file
+env:
+  baseFile: .env.base
+
 worktrees:
   path: ../worktrees          # Relative to project root
   naming: "{branch}"          # Supports {branch} placeholder
@@ -339,6 +604,8 @@ hooks:
 ```
 
 **Can be committed** to share configuration with your team.
+
+**New in v0.3.0**: The `env.baseFile` option enables a base environment layer shared across all services and contexts.
 
 ### Project-Local State (`.dual/`)
 
@@ -417,7 +684,10 @@ BASE_PORT=4000
 CONTEXT_HASH=$(echo -n "$DUAL_CONTEXT_NAME" | md5sum | cut -c1-4)
 PORT=$((BASE_PORT + 0x$CONTEXT_HASH % 1000))
 
-echo "PORT=$PORT" > "$DUAL_CONTEXT_PATH/.env.local"
+# Use dual env to set context-specific overrides
+cd "$DUAL_CONTEXT_PATH"
+dual env set PORT $PORT
+
 echo "Assigned port: $PORT"
 ```
 
@@ -432,7 +702,12 @@ pscale branch create mydb "$DUAL_CONTEXT_NAME" --from main
 
 # Get connection string
 CONNECTION_URL=$(pscale connect mydb "$DUAL_CONTEXT_NAME" --format url)
-echo "DATABASE_URL=$CONNECTION_URL" >> "$DUAL_CONTEXT_PATH/.env.local"
+
+# Use dual env to set database URL
+cd "$DUAL_CONTEXT_PATH"
+dual env set DATABASE_URL "$CONNECTION_URL"
+
+echo "Database branch created: $DUAL_CONTEXT_NAME"
 ```
 
 #### Dependency Installation
@@ -606,64 +881,185 @@ npm run dev  # Port 4238 (web=4237, api=4238)
 
 If you're upgrading from v0.2.x, here are the key changes:
 
-### What Changed
+### New Features in v0.3.0
 
-1. **Port Management Removed**: Dual no longer manages ports automatically
-   - Implement port assignment in hooks instead
-   - See hook examples above for custom port logic
+1. **Full Dotenv Compatibility**:
+   - Multiline values, variable expansion, escape sequences
+   - Use modern Node.js dotenv syntax in all .env files
+   - **Breaking**: Variable expansion now enabled by default
 
-2. **Registry Location**: Moved from `~/.dual/registry.json` to `$PROJECT_ROOT/.dual/.local/registry.json`
-   - Registry is now project-local, not global
-   - Contexts must be recreated with `dual create`
+2. **Three-Layer Environment System**:
+   - Base environment (.env.base)
+   - Service environments (apps/api/.env)
+   - Context overrides (managed via `dual env set`)
+   - **New**: `dual env` command suite for environment management
 
-3. **Command Structure**:
-   - `dual context create` → `dual create` (simpler worktree creation)
-   - `dual port` - Removed (implement in hooks if needed)
-   - `dual ports` - Removed (implement in hooks if needed)
-   - Command wrapper `dual <command>` - Removed (use hooks for env setup)
+3. **Unified Environment Loading**:
+   - All commands now use consistent environment loading
+   - Fixed bugs where service .env files weren't loaded
+   - **New**: `dual run` command for executing with full environment
 
-4. **Hook Events**:
-   - `postPortAssign` - Removed (use `postWorktreeCreate` instead)
+4. **Enhanced Error Handling**:
+   - Actionable error messages with hints
+   - Better diagnostics for configuration issues
+   - Helpful suggestions for fixing problems
+
+### Breaking Changes
+
+#### 1. Dotenv Parsing Changes
+
+**Variable Expansion** (now enabled):
+```bash
+# Old behavior: literal text
+API_URL=${BASE_URL}/api  # Result: "${BASE_URL}/api"
+
+# New behavior: expanded
+API_URL=${BASE_URL}/api  # Result: "http://localhost:3000/api"
+
+# To keep literal, use single quotes:
+TEMPLATE='${BASE_URL}/api'
+```
+
+**Escape Sequences** (now processed in double quotes):
+```bash
+# Old behavior: literal
+MESSAGE="Hello\nWorld"  # Result: "Hello\nWorld"
+
+# New behavior: processed
+MESSAGE="Hello\nWorld"  # Result: "Hello
+                        #          World"
+
+# To keep literal, use single quotes:
+LITERAL='Hello\nWorld'
+```
+
+**Inline Comments** (now stripped):
+```bash
+# Old behavior: included in value
+COLOR=#FF00FF  # Result: "#FF00FF"
+
+# New behavior: stripped
+COLOR=#FF00FF  # Result: "" (comment stripped!)
+
+# Quote values with #:
+COLOR="#FF00FF"
+```
+
+#### 2. Architecture Changes
+
+- **Port Management Removed**: Implement in hooks instead
+- **Registry Location**: Moved to `$PROJECT_ROOT/.dual/.local/registry.json`
+- **Command Changes**: Simplified to focus on worktree lifecycle
 
 ### Migration Steps
 
-1. **Update your config** - Add `worktrees` section to `dual.config.yml`:
-   ```yaml
-   worktrees:
-     path: ../worktrees
-     naming: "{branch}"
-   ```
+#### Step 1: Update .env Files
 
-2. **Implement port hooks** (if you need port management):
-   ```bash
-   # Create .dual/hooks/setup-environment.sh
-   # See examples above for port assignment logic
-   ```
+Check your .env files for these patterns:
 
-3. **Update commands**:
-   ```bash
-   # Old
-   dual context create feature-x --base-port 4200
+```bash
+# Find potential issues
+grep '\${' .env* apps/*/.env      # Variable references
+grep '\\' .env* apps/*/.env       # Escape sequences
+grep '=' .env* apps/*/.env | grep '#'  # Hash symbols
+```
 
-   # New
-   dual create feature-x
-   # (port is assigned by hook instead)
-   ```
+**Fix variable references:**
+```bash
+# If you want expansion (recommended):
+DATABASE_URL=postgresql://${DATABASE_HOST}:${DATABASE_PORT}/myapp
 
-4. **Recreate contexts**:
-   ```bash
-   # Old contexts in global registry won't work
-   # Recreate them with dual create
-   dual create main
-   dual create feature-branch
-   ```
+# If you want literal:
+TEMPLATE_URL='${BASE_URL}/api'
+```
 
-5. **Add `.dual/` to `.gitignore`**:
-   ```gitignore
-   .dual/.local/
-   ```
+**Fix escape sequences:**
+```bash
+# Single quotes for Windows paths:
+PATH='C:\Program Files\App'
 
-For detailed migration assistance, run `dual doctor` to diagnose configuration issues.
+# Or escape in double quotes:
+PATH="C:\\Program Files\\App"
+```
+
+**Fix hash symbols:**
+```bash
+# Quote values containing #:
+COLOR="#FF00FF"
+CHANNEL="#general"
+```
+
+#### Step 2: Update Configuration
+
+Add environment configuration to `dual.config.yml`:
+
+```yaml
+version: 1
+
+# Optional: Base environment
+env:
+  baseFile: .env.base
+
+# Required for dual create/delete
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
+
+# Update hooks
+hooks:
+  postWorktreeCreate:
+    - setup-environment.sh
+```
+
+#### Step 3: Update Hook Scripts
+
+Modernize hooks to use `dual env`:
+
+```bash
+#!/bin/bash
+# .dual/hooks/setup-environment.sh
+set -e
+
+# Calculate unique port
+BASE_PORT=4000
+CONTEXT_HASH=$(echo -n "$DUAL_CONTEXT_NAME" | md5sum | cut -c1-4)
+PORT=$((BASE_PORT + 0x$CONTEXT_HASH % 1000))
+
+# Use dual env instead of writing files directly
+cd "$DUAL_CONTEXT_PATH"
+dual env set PORT $PORT
+dual env set DATABASE_URL "postgresql://localhost/myapp_${DUAL_CONTEXT_NAME}"
+```
+
+#### Step 4: Test Environment Loading
+
+```bash
+# Check loaded environment
+dual env show --values
+
+# Verify variable expansion works
+dual env export | grep DATABASE_URL
+
+# Test with your application
+dual run npm start
+```
+
+#### Step 5: Clean Up
+
+```bash
+# Add new registry location to .gitignore
+echo "/.dual/.local/" >> .gitignore
+
+# Remove old files if migrating
+rm -f ~/.dual/registry.json  # Old global registry (no longer used)
+```
+
+### Getting Help
+
+- **Verify setup**: `dual doctor`
+- **Check environment**: `dual env show --values`
+- **Debug issues**: `dual --debug env check`
+- **Detailed docs**: See [USAGE.md - Migration Guide](USAGE.md#migration-guide)
 
 ## Documentation
 
@@ -748,19 +1144,31 @@ Apache License 2.0 - see [LICENSE](LICENSE) for details.
 ## Roadmap
 
 ### v0.3.0 (Current)
-- Worktree lifecycle management
-- Hook-based customization
-- Project-local registry
-- Service detection
-- Context management
+- ✅ Worktree lifecycle management
+- ✅ Hook-based customization
+- ✅ Full dotenv compatibility (multiline, expansion, escape sequences)
+- ✅ Three-layer environment system
+- ✅ Unified environment loading
+- ✅ Enhanced error handling with actionable hints
+- ✅ Project-local registry
+- ✅ Service detection
+- ✅ Context management
+- ✅ `dual env` command suite
+- ✅ `dual run` command execution
 
-### Planned
-- Visual dashboard (`dual ui`)
+### v0.4.0 (Planned)
+- Environment variable validation and schema
+- Template-based environment generation
 - Hook templates and examples library
+- Improved `dual doctor` diagnostics
+- Performance optimizations
+
+### Future
+- Visual dashboard (`dual ui`)
 - Windows support
 - Integration with tmux/terminal multiplexers
-- Environment variable templates
 - Git hook integration (pre-commit, pre-push)
+- Cloud service integrations (PlanetScale, Supabase, etc.)
 
 ## Credits
 
