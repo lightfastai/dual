@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 
 	"github.com/lightfastai/dual/internal/config"
 	"github.com/lightfastai/dual/internal/context"
@@ -84,39 +83,13 @@ func runCommand(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to detect context: %w", err)
 	}
 
-	// Build layered environment manually to include service-specific .env
-	layeredEnv := &env.LayeredEnv{
-		Base:      make(map[string]string),
-		Service:   make(map[string]string),
-		Overrides: make(map[string]string),
+	// Use the unified LoadLayeredEnv function to load all three layers
+	// Note: We don't pass overrides from registry here, letting LoadLayeredEnv
+	// load them from the filesystem if they exist
+	layeredEnv, err := env.LoadLayeredEnv(projectRoot, cfg, serviceName, ctxName, nil)
+	if err != nil {
+		return fmt.Errorf("failed to load layered environment: %w", err)
 	}
-
-	// Load base environment from .env.base if configured
-	if cfg.Env.BaseFile != "" {
-		baseFilePath := filepath.Join(projectRoot, cfg.Env.BaseFile)
-		baseEnv, err := env.LoadEnvFile(baseFilePath)
-		if err == nil {
-			layeredEnv.Base = baseEnv
-		}
-		// Non-fatal: if base file doesn't exist or can't be read, continue with empty base
-	}
-
-	// Load service-specific .env file
-	servicePath := cfg.Services[serviceName].Path
-	serviceEnvPath := filepath.Join(projectRoot, servicePath, ".env")
-	serviceEnv, err := env.LoadEnvFile(serviceEnvPath)
-	if err == nil {
-		layeredEnv.Service = serviceEnv
-	}
-	// Non-fatal: if service .env doesn't exist, continue without it
-
-	// Load context-specific overrides from .dual/.local/service/<service>/.env
-	overridesPath := filepath.Join(projectRoot, ".dual", ".local", "service", serviceName, ".env")
-	overridesEnv, err := env.LoadEnvFile(overridesPath)
-	if err == nil {
-		layeredEnv.Overrides = overridesEnv
-	}
-	// Non-fatal: if overrides file doesn't exist, continue without it
 
 	// Merge all layers
 	mergedEnv := layeredEnv.Merge()
