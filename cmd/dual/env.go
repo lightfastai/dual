@@ -227,17 +227,23 @@ func runEnvShow(cmd *cobra.Command, args []string) error {
 	}
 	defer reg.Close()
 
-	// Get context from registry
+	// Get context from registry - gracefully handle when not found
+	var overrides map[string]string
 	ctx, err := reg.GetContext(projectIdentifier, contextName)
 	if err != nil {
-		return fmt.Errorf("context %q not found in registry\nHint: Run 'dual create <branch>' to create a worktree with a context", contextName)
+		// Context not in registry - this is OK for read-only commands
+		// We can still show base and service layers, just without overrides
+		logger.Debug("Context not in registry, proceeding without overrides: %v", err)
+		overrides = nil
+	} else {
+		// Get environment overrides for the specified service (or global if no service specified)
+		overrides = ctx.GetEnvOverrides(envServiceFlag)
 	}
 
-	// Get environment overrides for the specified service (or global if no service specified)
-	overrides := ctx.GetEnvOverrides(envServiceFlag)
-
-	// Load layered environment
-	layeredEnv, err := env.LoadLayeredEnv(projectRoot, cfg, contextName, overrides)
+	// Load layered environment with the updated signature
+	// Pass serviceName to load the service layer properly
+	// LoadLayeredEnv will try to load overrides from filesystem if not provided
+	layeredEnv, err := env.LoadLayeredEnv(projectRoot, cfg, envServiceFlag, contextName, overrides)
 	if err != nil {
 		return fmt.Errorf("failed to load environment: %w", err)
 	}
@@ -271,12 +277,18 @@ func showEnvSummary(layeredEnv *env.LayeredEnv, cfg *config.Config, contextName 
 		fmt.Println("Base:      (none configured)")
 	}
 
+	// Show service layer info
+	if stats.ServiceVars > 0 {
+		fmt.Printf("Service:   %d vars\n", stats.ServiceVars)
+	} else {
+		fmt.Println("Service:   (none loaded)")
+	}
+
 	// Show overrides count
 	fmt.Printf("Overrides: %d vars\n", stats.OverrideVars)
 
-	// Show total
-	totalVars := stats.BaseVars + stats.OverrideVars
-	fmt.Printf("Effective: %d vars total\n", totalVars)
+	// Show total (now correctly includes all three layers)
+	fmt.Printf("Effective: %d vars total\n", stats.TotalVars)
 
 	// Show overrides if any
 	if stats.OverrideVars > 0 {
@@ -371,10 +383,12 @@ func outputEnvJSON(layeredEnv *env.LayeredEnv, cfg *config.Config, contextName s
 		"baseFile": cfg.Env.BaseFile,
 		"stats": map[string]int{
 			"baseVars":     stats.BaseVars,
+			"serviceVars":  stats.ServiceVars,
 			"overrideVars": stats.OverrideVars,
-			"totalVars":    stats.BaseVars + stats.OverrideVars,
+			"totalVars":    stats.TotalVars,
 		},
 		"base":      layeredEnv.Base,
+		"service":   layeredEnv.Service,
 		"overrides": layeredEnv.Overrides,
 	}
 
@@ -605,12 +619,6 @@ func runEnvExport(cmd *cobra.Command, args []string) error {
 	}
 	defer reg.Close()
 
-	// Get context from registry
-	ctx, err := reg.GetContext(projectIdentifier, contextName)
-	if err != nil {
-		return fmt.Errorf("context %q not found in registry\nHint: Run 'dual create <branch>' to create a worktree with a context", contextName)
-	}
-
 	// If service is specified, validate it exists in config
 	if envServiceFlag != "" {
 		if _, exists := cfg.Services[envServiceFlag]; !exists {
@@ -618,11 +626,23 @@ func runEnvExport(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Get environment overrides for the specified service (or global if no service specified)
-	overrides := ctx.GetEnvOverrides(envServiceFlag)
+	// Get context from registry - gracefully handle when not found
+	var overrides map[string]string
+	ctx, err := reg.GetContext(projectIdentifier, contextName)
+	if err != nil {
+		// Context not in registry - this is OK for export
+		// We can still export base and service layers, just without overrides
+		logger.Debug("Context not in registry, proceeding without overrides: %v", err)
+		overrides = nil
+	} else {
+		// Get environment overrides for the specified service (or global if no service specified)
+		overrides = ctx.GetEnvOverrides(envServiceFlag)
+	}
 
-	// Load layered environment
-	layeredEnv, err := env.LoadLayeredEnv(projectRoot, cfg, contextName, overrides)
+	// Load layered environment with the updated signature
+	// Pass serviceName to load the service layer properly
+	// LoadLayeredEnv will try to load overrides from filesystem if not provided
+	layeredEnv, err := env.LoadLayeredEnv(projectRoot, cfg, envServiceFlag, contextName, overrides)
 	if err != nil {
 		return fmt.Errorf("failed to load environment: %w", err)
 	}
@@ -811,12 +831,13 @@ func loadAndMergeContextEnvs(context1, context2 string) (map[string]string, map[
 	}
 
 	// Load environments for both contexts (using global overrides)
-	env1, err := env.LoadLayeredEnv(projectRoot, cfg, context1, ctx1.GetEnvOverrides(""))
+	// Note: not passing a service name here as we want to compare global environments
+	env1, err := env.LoadLayeredEnv(projectRoot, cfg, "", context1, ctx1.GetEnvOverrides(""))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to load environment for %q: %w", context1, err)
 	}
 
-	env2, err := env.LoadLayeredEnv(projectRoot, cfg, context2, ctx2.GetEnvOverrides(""))
+	env2, err := env.LoadLayeredEnv(projectRoot, cfg, "", context2, ctx2.GetEnvOverrides(""))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to load environment for %q: %w", context2, err)
 	}

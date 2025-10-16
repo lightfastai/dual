@@ -67,13 +67,18 @@ type EnvStats struct {
 	TotalVars    int
 }
 
-// LoadLayeredEnv loads a layered environment for a given context
-// projectRoot: The root directory of the project
-// cfg: The dual configuration
-// contextName: The name of the current context
-// overrides: Context-specific overrides from registry
-// Note: This function does NOT load service-specific .env files. Use the manual approach in run.go instead.
-func LoadLayeredEnv(projectRoot string, cfg *config.Config, contextName string, overrides map[string]string) (*LayeredEnv, error) {
+// LoadLayeredEnv loads a layered environment for a given context with all three layers:
+// 1. Base environment from the configured base file
+// 2. Service-specific environment from the service's .env file
+// 3. Context-specific overrides (from registry or filesystem)
+//
+// Parameters:
+//   - projectRoot: The root directory of the project
+//   - cfg: The dual configuration
+//   - serviceName: The name of the service (empty string for no service)
+//   - contextName: The name of the current context (empty string for no context)
+//   - overrides: Context-specific overrides from registry (can be nil)
+func LoadLayeredEnv(projectRoot string, cfg *config.Config, serviceName string, contextName string, overrides map[string]string) (*LayeredEnv, error) {
 	loader := NewLoader()
 	env := &LayeredEnv{
 		Base:      make(map[string]string),
@@ -81,21 +86,54 @@ func LoadLayeredEnv(projectRoot string, cfg *config.Config, contextName string, 
 		Overrides: make(map[string]string),
 	}
 
-	// Load base environment file if configured
+	// Layer 1: Load base environment file if configured
 	if cfg.Env.BaseFile != "" {
 		baseFilePath := filepath.Join(projectRoot, cfg.Env.BaseFile)
 		baseEnv, err := loader.LoadEnvFile(baseFilePath)
 		if err != nil {
-			// Non-fatal: log warning but continue
-			// The file might not exist yet, which is OK
+			// Non-fatal: The file might not exist yet, which is OK
+			// Just continue with empty base environment
 		} else {
 			env.Base = baseEnv
 		}
 	}
 
-	// Add context overrides from registry
+	// Layer 2: Load service-specific environment file
+	if serviceName != "" {
+		if service, ok := cfg.Services[serviceName]; ok {
+			// Determine the env file path
+			var envFilePath string
+			if service.EnvFile != "" {
+				// Use the configured envFile path
+				envFilePath = filepath.Join(projectRoot, service.EnvFile)
+			} else {
+				// Default to <service-path>/.env
+				envFilePath = filepath.Join(projectRoot, service.Path, ".env")
+			}
+
+			serviceEnv, err := loader.LoadEnvFile(envFilePath)
+			if err != nil {
+				// Non-fatal: The service .env file might not exist, which is OK
+				// Just continue with empty service environment
+			} else {
+				env.Service = serviceEnv
+			}
+		}
+	}
+
+	// Layer 3: Add context-specific overrides
+	// First try to use provided overrides (from registry)
 	if overrides != nil {
 		env.Overrides = overrides
+	} else if contextName != "" && serviceName != "" {
+		// If no overrides provided but we have context and service,
+		// try to load from filesystem (.dual/.local/service/<service>/.env)
+		overridesPath := filepath.Join(projectRoot, ".dual", ".local", "service", serviceName, ".env")
+		overridesEnv, err := loader.LoadEnvFile(overridesPath)
+		if err == nil {
+			env.Overrides = overridesEnv
+		}
+		// Non-fatal: if overrides file doesn't exist, continue with empty overrides
 	}
 
 	return env, nil
