@@ -2079,13 +2079,36 @@ NODE_ENV=development
 
 **Auto-loaded**: Dual automatically loads `<service-path>/.env`
 
-**Example `apps/api/.env`**:
+**Two-Phase Loading for Worktrees**:
+When running from a worktree, dual loads service .env files from both locations:
+1. Parent repository: `$PARENT_REPO/<service-path>/.env` (base configuration)
+2. Worktree directory: `$WORKTREE/<service-path>/.env` (overrides parent)
+
+This allows worktrees to inherit common configuration while customizing specific values.
+
+**Example `apps/api/.env`** (parent repo):
 ```bash
-# Specific to API service
+# Specific to API service (shared by all worktrees)
 PORT=3000
-DATABASE_URL=postgresql://localhost/myapp
+API_KEY=sk_test_123
 REDIS_URL=redis://localhost:6379
 MAX_CONNECTIONS=100
+```
+
+**Example `apps/api/.env`** (in worktree):
+```bash
+# Worktree-specific overrides
+PORT=3000
+DATABASE_URL=postgresql://localhost/myapp_feature_auth
+```
+
+**Merged Result** (when running in worktree):
+```bash
+PORT=3000                                              # From parent
+API_KEY=sk_test_123                                   # From parent
+REDIS_URL=redis://localhost:6379                      # From parent
+MAX_CONNECTIONS=100                                   # From parent
+DATABASE_URL=postgresql://localhost/myapp_feature_auth # From worktree (override)
 ```
 
 **Example `apps/web/.env`**:
@@ -2100,6 +2123,7 @@ PUBLIC_URL=http://localhost:3001
 - Service-specific configuration
 - Default ports, URLs, connection strings
 - Service dependencies
+- Worktree-specific database URLs or other environment-specific values
 
 #### Layer 3: Context-Specific Overrides
 

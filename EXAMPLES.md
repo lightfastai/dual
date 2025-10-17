@@ -2286,6 +2286,403 @@ dual --verbose create feature-test
 
 ---
 
+## Environment Management in Worktrees
+
+### Two-Root Architecture
+
+Dual uses a two-root architecture to properly support worktrees. Understanding this is key to effective environment management.
+
+#### Architecture Components
+
+**Parent Repository Root** (`projectIdentifier`):
+- Where the main repository lives
+- Where registry is stored (`.dual/.local/registry.json`)
+- Where environment overrides are stored (`.dual/.local/service/<service>/.env`)
+- Shared by all worktrees of the same repository
+
+**Worktree Root** (`projectRoot`):
+- Where the current worktree lives (or parent repo if not a worktree)
+- Where `dual.config.yml` is found
+- Where service directories exist (e.g., `apps/web/`)
+- Where service `.env` files are read from
+
+#### File Locations Example
+
+```bash
+# Parent repository
+/Users/dev/Code/myproject/
+├── dual.config.yml
+├── .dual/
+│   ├── .local/
+│   │   ├── registry.json              # Shared registry
+│   │   └── service/
+│   │       ├── api/.env               # Shared overrides for api
+│   │       └── web/.env               # Shared overrides for web
+│   └── hooks/
+│       └── setup-environment.sh
+└── apps/
+    ├── api/.env                        # Service config
+    └── web/.env                        # Service config
+
+# Worktree
+/Users/dev/Code/worktrees/feature-auth/
+├── dual.config.yml                     # Copied from parent
+├── apps/
+│   ├── api/.env                        # Can override parent's api/.env
+│   └── web/.env                        # Can override parent's web/.env
+```
+
+---
+
+### Environment Loading in Worktrees
+
+#### Three-Layer Priority System
+
+When running from a worktree, dual loads environment variables from three layers:
+
+1. **Base environment** (`.env.base` if configured) - lowest priority
+2. **Service-specific environment** (`<service-path>/.env`) - medium priority
+   - Loaded from **both** parent repo and worktree
+   - Parent repo provides base configuration
+   - Worktree can override specific values
+3. **Context-specific overrides** (`.dual/.local/service/<service>/.env`) - highest priority
+
+#### Example: Environment Loading Flow
+
+**Setup:**
+
+```yaml
+# dual.config.yml
+version: 1
+
+env:
+  baseFile: .env.base
+
+services:
+  api:
+    path: apps/api
+```
+
+**Files:**
+
+```bash
+# .env.base (Layer 1 - base)
+APP_NAME=MyApp
+LOG_LEVEL=info
+ENVIRONMENT=development
+
+# Parent: apps/api/.env (Layer 2 - service, parent repo)
+PORT=3000
+API_KEY=sk_test_123
+REDIS_URL=redis://localhost:6379
+DATABASE_URL=postgresql://localhost/myapp
+
+# Worktree: apps/api/.env (Layer 2 - service, worktree override)
+DATABASE_URL=postgresql://localhost/myapp_feature_auth
+DEBUG=true
+
+# .dual/.local/service/api/.env (Layer 3 - context override)
+PORT=4237
+```
+
+**Effective Environment** (when running `dual run` or `dual env show` in worktree):
+
+```bash
+# From base
+APP_NAME=MyApp
+LOG_LEVEL=info
+ENVIRONMENT=development
+
+# From parent repo's service file
+API_KEY=sk_test_123
+REDIS_URL=redis://localhost:6379
+
+# From worktree's service file (overrides parent)
+DATABASE_URL=postgresql://localhost/myapp_feature_auth
+DEBUG=true
+
+# From context override (highest priority)
+PORT=4237
+```
+
+---
+
+### Practical Environment Management
+
+#### Scenario 1: Service-Specific Overrides
+
+Set different ports for different services in the same worktree:
+
+```bash
+# In worktree: feature-auth
+cd ~/Code/worktrees/feature-auth
+
+# Set port for API service
+dual env set --service api PORT 5000
+
+# Set port for web service
+dual env set --service web PORT 3000
+
+# View API environment
+dual env show --service api
+# Shows: PORT=5000
+
+# View web environment
+dual env show --service web
+# Shows: PORT=3000
+```
+
+These overrides are stored in the **parent repository** at:
+- `.dual/.local/service/api/.env`
+- `.dual/.local/service/web/.env`
+
+This means all worktrees can access the same overrides!
+
+#### Scenario 2: Global vs Service-Specific
+
+```bash
+# Set global DATABASE_URL (applies to all services)
+dual env set DATABASE_URL "postgresql://localhost/myapp_feature_auth"
+
+# Set service-specific DATABASE_URL (only for api service)
+dual env set --service api DATABASE_URL "postgresql://localhost/api_feature_auth"
+
+# API service sees: postgresql://localhost/api_feature_auth (service-specific wins)
+# Web service sees: postgresql://localhost/myapp_feature_auth (global)
+```
+
+#### Scenario 3: Worktree-Specific Configuration
+
+Configure a worktree to use a different database than the parent repo:
+
+```bash
+# In parent repo: apps/api/.env
+DATABASE_URL=postgresql://localhost/myapp
+
+# In worktree: apps/api/.env
+DATABASE_URL=postgresql://localhost/myapp_feature_auth
+
+# When running from parent repo
+cd ~/Code/myproject/apps/api
+dual run node server.js
+# Uses: postgresql://localhost/myapp
+
+# When running from worktree
+cd ~/Code/worktrees/feature-auth/apps/api
+dual run node server.js
+# Uses: postgresql://localhost/myapp_feature_auth
+```
+
+---
+
+### Complete Example: Multi-Service Worktree
+
+#### Setup
+
+**Configuration:**
+
+```yaml
+# dual.config.yml
+version: 1
+
+env:
+  baseFile: .env.base
+
+services:
+  web:
+    path: apps/web
+  api:
+    path: apps/api
+  worker:
+    path: apps/worker
+
+worktrees:
+  path: ../worktrees
+  naming: "{branch}"
+
+hooks:
+  postWorktreeCreate:
+    - setup-multi-service-env.sh
+```
+
+**Hook Script:**
+
+```bash
+#!/bin/bash
+# .dual/hooks/setup-multi-service-env.sh
+
+set -e
+
+echo "Setting up multi-service environment for: $DUAL_CONTEXT_NAME"
+
+# Calculate base port
+BASE_PORT=4000
+CONTEXT_HASH=$(echo -n "$DUAL_CONTEXT_NAME" | md5sum | cut -c1-4)
+CONTEXT_BASE=$((BASE_PORT + 0x$CONTEXT_HASH % 100 * 10))
+
+# Set context-specific overrides using dual env
+cd "$DUAL_CONTEXT_PATH"
+
+# Web service
+dual env set --service web PORT $((CONTEXT_BASE + 1))
+dual env set --service web API_URL "http://localhost:$((CONTEXT_BASE + 2))"
+
+# API service
+dual env set --service api PORT $((CONTEXT_BASE + 2))
+dual env set --service api DATABASE_URL "postgresql://localhost/myapp_${DUAL_CONTEXT_NAME}"
+dual env set --service api WORKER_URL "http://localhost:$((CONTEXT_BASE + 3))"
+
+# Worker service
+dual env set --service worker PORT $((CONTEXT_BASE + 3))
+dual env set --service worker API_URL "http://localhost:$((CONTEXT_BASE + 2))"
+
+echo "✓ Multi-service environment configured:"
+echo "  web:    http://localhost:$((CONTEXT_BASE + 1))"
+echo "  api:    http://localhost:$((CONTEXT_BASE + 2))"
+echo "  worker: http://localhost:$((CONTEXT_BASE + 3))"
+```
+
+#### Usage
+
+```bash
+# Create worktree
+dual create feature-checkout
+
+# Output:
+# Setting up multi-service environment for: feature-checkout
+# ✓ Multi-service environment configured:
+#   web:    http://localhost:4751
+#   api:    http://localhost:4752
+#   worker: http://localhost:4753
+
+# Switch to worktree
+cd ../worktrees/feature-checkout
+
+# View environment for each service
+dual env show --service web
+# Shows: PORT=4751, API_URL=http://localhost:4752
+
+dual env show --service api
+# Shows: PORT=4752, DATABASE_URL=postgresql://localhost/myapp_feature_checkout
+
+dual env show --service worker
+# Shows: PORT=4753, API_URL=http://localhost:4752
+
+# Run services with injected environment
+cd apps/web
+dual run npm run dev  # Starts on port 4751
+
+cd ../api
+dual run npm run dev  # Starts on port 4752, connects to dedicated database
+
+cd ../worker
+dual run npm run dev  # Starts on port 4753, connects to API on 4752
+```
+
+---
+
+### Environment Comparison Between Contexts
+
+Compare environments to understand differences:
+
+```bash
+# Compare main and feature branch environments
+dual env diff main feature-auth
+
+# Output:
+# Comparing environments: main → feature-auth
+#
+# Changed:
+#   PORT: 3000 → 4237
+#   DATABASE_URL: postgresql://localhost/myapp → postgresql://localhost/myapp_feature_auth
+#
+# Added:
+#   DEBUG=true
+#
+# No variables removed
+```
+
+This is useful for:
+- Debugging environment-specific issues
+- Ensuring staging matches production
+- Documenting differences between contexts
+- Validating worktree configuration
+
+---
+
+### Environment Export and Sharing
+
+Export environment for use in other tools:
+
+```bash
+# Export as dotenv format
+dual env export > .env.local
+
+# Export as JSON for processing
+dual env export --format json | jq '.DATABASE_URL'
+
+# Export as shell commands for sourcing
+eval "$(dual env export --format shell)"
+
+# Now variables are in your shell
+echo $PORT
+echo $DATABASE_URL
+```
+
+---
+
+### Troubleshooting Environment Issues
+
+#### Problem: Overrides not showing up in worktree
+
+```bash
+# Check if override file exists in parent repo
+ls /Users/dev/Code/myproject/.dual/.local/service/api/.env
+
+# If missing, verify worktree detection
+git rev-parse --git-common-dir
+# Should point to parent repo's .git if you're in a worktree
+
+# Run doctor for diagnostics
+dual doctor --verbose
+```
+
+#### Problem: Wrong environment values
+
+```bash
+# Show environment with all layers
+dual env show --values
+
+# Check which file each variable comes from
+dual env show --values --json | jq '.layers'
+
+# Verify service detection
+dual run --service api env | grep PORT
+```
+
+#### Problem: Service file inheritance not working
+
+When running from a worktree, dual loads service `.env` files from both:
+1. Parent repo: `$PARENT_REPO/apps/api/.env` (base)
+2. Worktree: `$WORKTREE/apps/api/.env` (overrides)
+
+If inheritance isn't working:
+
+```bash
+# Verify worktree detector finds parent repo
+cat .git
+# Should contain: gitdir: /path/to/parent/.git/worktrees/name
+
+# Check both files exist
+ls /Users/dev/Code/myproject/apps/api/.env        # Parent
+ls /Users/dev/Code/worktrees/feature-x/apps/api/.env  # Worktree
+
+# Enable debug mode to see loading order
+dual --debug env show
+```
+
+---
+
 ## Next Steps
 
 - See [USAGE.md](USAGE.md) for complete command reference

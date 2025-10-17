@@ -6,6 +6,7 @@ Technical documentation explaining how `dual` works internally.
 
 - [Overview](#overview)
 - [Core Components](#core-components)
+- [Two-Root Architecture](#two-root-architecture)
 - [Data Flow](#data-flow)
 - [File Structure](#file-structure)
 - [Worktree Management](#worktree-management)
@@ -24,11 +25,27 @@ Technical documentation explaining how `dual` works internally.
 
 `dual` is a CLI tool written in Go that manages git worktree lifecycle (creation, deletion) with environment remapping via hooks. It operates in **Management Mode** with direct subcommands:
 
+**Worktree Management:**
 - `dual create <branch>` - Create a new worktree with lifecycle hooks
 - `dual delete <context>` - Delete a worktree with cleanup hooks
-- `dual init` - Initialize dual configuration
+- `dual list` - List all contexts/worktrees (alias: `dual context list`)
+
+**Service Management:**
 - `dual service add/list/remove` - Manage service definitions
-- `dual context list` - List contexts (deprecated in favor of create/delete)
+
+**Environment Management:**
+- `dual env show` - Display environment summary and overrides
+- `dual env set/unset` - Manage context-specific environment overrides
+- `dual env export` - Export merged environment to stdout
+- `dual env check` - Validate environment configuration
+- `dual env diff` - Compare environments between contexts
+- `dual env remap` - Regenerate service-specific .env files
+
+**Execution & Utilities:**
+- `dual run <command>` - Run command with full environment injection
+- `dual open [service]` - Open service directory in VS Code
+- `dual sync` - Sync environment files for services
+- `dual init` - Initialize dual configuration
 - `dual doctor` - Diagnose configuration and registry health
 
 ### Key Principles
@@ -90,7 +107,7 @@ Identifies the current service:
 
 ### 6. Environment Layer (`internal/env/`)
 
-Manages layered environment variables with three priority levels:
+Manages layered environment variables with three priority levels and supports the two-root architecture for proper worktree handling.
 
 **Environment Loading:**
 - Uses `godotenv` library for full dotenv specification compatibility
@@ -104,7 +121,16 @@ Manages layered environment variables with three priority levels:
 **Three-Layer Priority System:**
 1. **Base environment** (`.env.base` if configured) - lowest priority
 2. **Service-specific environment** (`<service-path>/.env`) - medium priority
+   - Loads from both parent repo and worktree (worktree overrides parent)
 3. **Context-specific overrides** (`.dual/.local/service/<service>/.env`) - highest priority
+   - Stored in parent repo, shared across all worktrees
+
+**Two-Root Environment Loading:**
+- Service .env files loaded from both parent repo and worktree
+- Parent repo provides base configuration
+- Worktree can override specific values
+- Example: Parent has `PORT=4000`, worktree has `DATABASE_URL=postgres://localhost/feature_db`
+- Result: Merges both, with worktree values taking precedence
 
 **Unified Loading:**
 - All environment loading uses the `LoadLayeredEnv()` function for consistency
@@ -113,6 +139,13 @@ Manages layered environment variables with three priority levels:
 - Can load overrides from filesystem when registry unavailable
 - Used by `dual run` to inject full environment into command execution
 - Used by `dual env` commands for display and validation
+
+**Service-Specific vs Global Overrides:**
+- Registry stores both global overrides (all services) and service-specific overrides
+- `dual env set KEY VALUE` creates global override
+- `dual env set --service api KEY VALUE` creates service-specific override
+- Service-specific overrides take precedence over global overrides
+- All stored in `context.EnvOverridesV2` structure in registry
 
 ### 7. Hook System (`internal/hooks/`)
 
@@ -144,6 +177,180 @@ Provides structured logging with multiple verbosity levels:
 - **Environment variable**: `DUAL_DEBUG=1` enables debug mode
 - All output goes to stderr to keep stdout clean
 - Functions: `Info()`, `Success()`, `Error()`, `Verbose()`, `Debug()`
+
+### 10. Worktree Detector (`internal/worktree/detector.go`)
+
+Detects git worktrees and finds parent repositories:
+- **`IsWorktree()`**: Checks if directory is a worktree by examining `.git` file
+- **`GetParentRepo()`**: Finds parent repository path from worktree
+- **`GetProjectRoot()`**: Returns parent repo for worktrees, current repo otherwise
+- **`FindGitRoot()`**: Walks up directory tree to find `.git` file or directory
+- Resolves symlinks for consistent path comparison
+- Critical for two-root architecture implementation
+
+---
+
+## Two-Root Architecture
+
+The dual CLI implements a **two-root architecture** that distinguishes between the worktree directory (where code lives) and the parent repository (where shared state lives). This enables multiple git worktrees to share a common registry and environment configuration while maintaining independent working directories.
+
+### Core Concept
+
+The architecture uses two distinct root paths:
+
+1. **Project Root** (`projectRoot`):
+   - The worktree directory where `dual.config.yml` exists
+   - Returned by `config.LoadConfig()`
+   - Where service directories are located (e.g., `apps/web/`)
+   - Where relative service paths are resolved from
+   - Changes per worktree
+
+2. **Project Identifier** (`projectIdentifier`):
+   - The parent repository path
+   - Returned by `config.GetProjectIdentifier()`
+   - Where registry is stored (`.dual/.local/registry.json`)
+   - Where environment overrides are stored (`.dual/.local/service/<service>/.env`)
+   - Shared across all worktrees of the same repository
+
+### How Worktree Detection Works
+
+**Distinguishing Worktrees from Normal Repos:**
+
+Normal repositories have `.git` as a **directory**:
+```
+/Users/dev/myapp/.git/
+├── config
+├── HEAD
+├── objects/
+└── refs/
+```
+
+Worktrees have `.git` as a **file** pointing to the parent repo:
+```
+/Users/dev/worktrees/feature-auth/.git
+```
+
+Content:
+```
+gitdir: /Users/dev/myapp/.git/worktrees/feature-auth
+```
+
+**Detection Algorithm** (`internal/worktree/detector.go`):
+
+1. Check if `.git` exists
+2. If `.git` is a directory → normal repo (not a worktree)
+3. If `.git` is a file → read the file content
+4. Parse `gitdir: <path>` format
+5. Check if path contains `/worktrees/` or `\worktrees\` → worktree
+6. Extract parent repo path and validate with `git rev-parse --show-toplevel`
+
+### File Locations in Two-Root Architecture
+
+**Registry Location (Parent Repo):**
+```
+Path: $PARENT_REPO/.dual/.local/registry.json
+
+Example:
+Parent repo: /Users/dev/myapp
+Worktree:    /Users/dev/worktrees/feature-auth
+Registry:    /Users/dev/myapp/.dual/.local/registry.json (shared)
+```
+
+**Environment Override Files (Parent Repo):**
+```
+Path: $PARENT_REPO/.dual/.local/service/<service>/.env
+
+Example:
+Parent repo: /Users/dev/myapp
+Override:    /Users/dev/myapp/.dual/.local/service/api/.env (shared)
+```
+
+These files are auto-generated when using `dual env set` and stored in the parent repo to be shared across all worktrees.
+
+**Service .env Files (Both Parent and Worktree):**
+```
+Parent:   $PARENT_REPO/<service-path>/.env
+Worktree: $WORKTREE/<service-path>/.env
+
+Loading priority:
+1. Parent repo's service .env (base configuration)
+2. Worktree's service .env (overrides parent)
+```
+
+This allows worktrees to inherit common configuration from the parent repo while overriding specific values locally.
+
+**Config File (Worktree):**
+```
+Path: $WORKTREE/dual.config.yml
+
+Each worktree has its own copy (copied during dual create)
+```
+
+### Data Flow Pattern
+
+All commands follow the same pattern:
+
+```go
+// 1. Load config (returns worktree directory)
+cfg, projectRoot, err := config.LoadConfig()
+
+// 2. Get parent repo root (for registry/overrides)
+projectIdentifier, err := config.GetProjectIdentifier(projectRoot)
+
+// 3. Use projectIdentifier for registry operations
+reg, err := registry.LoadRegistry(projectIdentifier)
+
+// 4. Use projectRoot for service file operations
+servicePath := filepath.Join(projectRoot, service.Path)
+```
+
+**Why this works:**
+- `LoadConfig()` finds config in worktree → returns worktree path
+- `GetProjectIdentifier()` detects worktree → returns parent repo path
+- Registry operations use parent repo (shared state)
+- Service operations use worktree (independent code)
+
+### Example: `dual env set --service api PORT 4001`
+
+Complete data flow through two-root architecture:
+
+```
+1. Load Config (Worktree)
+   → projectRoot = /Users/dev/worktrees/feature-auth
+
+2. Detect Context
+   → contextName = "feature-auth" (from git branch)
+
+3. Get Project Identifier (Parent Repo)
+   → projectIdentifier = /Users/dev/myapp (via worktree detection)
+
+4. Load Registry (Parent Repo)
+   → Loads: /Users/dev/myapp/.dual/.local/registry.json
+
+5. Set Override in Registry
+   → Updates context.EnvOverridesV2.Services["api"]["PORT"] = "4001"
+
+6. Save Registry (Parent Repo)
+   → Saves to: /Users/dev/myapp/.dual/.local/registry.json
+
+7. Generate Service .env Files
+   → Writes to: /Users/dev/myapp/.dual/.local/service/api/.env
+```
+
+Files modified:
+- `/Users/dev/myapp/.dual/.local/registry.json` (updated)
+- `/Users/dev/myapp/.dual/.local/service/api/.env` (generated)
+
+Files read:
+- `/Users/dev/worktrees/feature-auth/dual.config.yml`
+
+### Benefits of Two-Root Architecture
+
+1. **Shared State**: Registry and environment overrides accessible by all worktrees
+2. **Independent Code**: Service files and git operations happen in worktree directories
+3. **Configuration Inheritance**: Worktrees inherit base configuration from parent repo
+4. **Consistent Paths**: Symlink resolution ensures path consistency across platforms
+5. **No Duplication**: Environment overrides stored once, used by all worktrees
 
 ---
 
